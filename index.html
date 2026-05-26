@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TreadGuard CV — Predictive Road Audits</title>
+
+  <!-- Google Fonts: Cinematic pairing -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Ambient background noise texture -->
+  <div class="bg-grain"></div>
+
+  <!-- Scanline overlay for CRT feel -->
+  <div class="scanlines"></div>
+
+  <!-- ─── HEADER ──────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo-block">
+        <div class="logo-icon">
+          <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="18" cy="18" r="17" stroke="var(--accent)" stroke-width="1.5"/>
+            <circle cx="18" cy="18" r="9" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 2"/>
+            <circle cx="18" cy="18" r="3" fill="var(--accent)"/>
+            <line x1="18" y1="1" x2="18" y2="7" stroke="var(--accent)" stroke-width="1.5"/>
+            <line x1="18" y1="29" x2="18" y2="35" stroke="var(--accent)" stroke-width="1.5"/>
+            <line x1="1" y1="18" x2="7" y2="18" stroke="var(--accent)" stroke-width="1.5"/>
+            <line x1="29" y1="18" x2="35" y2="18" stroke="var(--accent)" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="site-title">TreadGuard <span class="title-cv">CV</span></h1>
+          <p class="site-subtitle">Predictive Road Audits &amp; Abrasion Analytics</p>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="status-pill" id="statusPill">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusLabel">API Live</span>
+        </div>
+        <button class="toggle-btn" id="demoToggle" title="Toggle Demo / Live Mode">
+          <span class="toggle-label">DEMO</span>
+          <div class="toggle-track">
+            <div class="toggle-thumb" id="toggleThumb"></div>
+          </div>
+        </button>
+        <div class="session-time">
+          <span class="session-label">SESSION</span>
+          <span class="session-clock" id="sessionClock">00:00:00</span>
+        </div>
+      </div>
+    </div>
+    <!-- Scanning progress bar -->
+    <div class="scan-progress-bar"><div class="scan-progress-fill" id="scanProgress"></div></div>
+  </header>
+
+  <!-- ─── MAIN GRID ─────────────────────────────────── -->
+  <main class="dashboard-grid">
+
+    <!-- ── LEFT COLUMN: Media Viewer ─────────────────── -->
+    <section class="media-section">
+
+      <div class="media-container" id="mediaContainer">
+
+        <!-- Road background canvas: drawn by JS in demo mode -->
+        <canvas id="roadBgCanvas" class="road-bg-canvas"></canvas>
+
+        <!-- Video element (loops, muted, plays in-browser) -->
+        <video
+          id="roadVideo"
+          class="road-video"
+          autoplay
+          muted
+          playsinline
+        >
+          <!-- No src: transparent by default; road canvas shows through -->
+          <source src="" type="video/mp4" />
+        </video>
+
+        <!-- Bounding Box / HUD Canvas Overlay -->
+        <canvas id="hudCanvas" class="hud-canvas"></canvas>
+
+        <!-- Corner brackets HUD decoration -->
+        <div class="hud-corner hud-tl"></div>
+        <div class="hud-corner hud-tr"></div>
+        <div class="hud-corner hud-bl"></div>
+        <div class="hud-corner hud-br"></div>
+
+        <!-- Top HUD bar -->
+        <div class="hud-topbar">
+          <span class="hud-label">REC</span>
+          <span class="hud-blink">●</span>
+          <span class="hud-separator">|</span>
+          <span class="hud-label">CAM-01</span>
+          <span class="hud-separator">|</span>
+          <span id="hudFPS" class="hud-label">— FPS</span>
+          <span class="hud-separator">|</span>
+          <span id="hudTimestamp" class="hud-label">--:--:--</span>
+        </div>
+
+        <!-- Bottom HUD status bar -->
+        <div class="hud-bottombar">
+          <div class="hud-scan-status" id="hudScanStatus">
+            <span class="scan-spinner"></span>
+            <span id="scanStatusText">SCANNING FRAME…</span>
+          </div>
+          <div class="hud-coords">
+            <span id="hudLat">LAT 18.5204°N</span>
+            <span class="hud-separator">|</span>
+            <span id="hudLng">LNG 73.8567°E</span>
+          </div>
+        </div>
+
+        <!-- Detection Count badge on video -->
+        <div class="hud-detection-badge" id="hudDetectionBadge">
+          <span id="hudDetCount">0</span>
+          <span class="hud-det-label">DEFECTS</span>
+        </div>
+
+      </div><!-- /media-container -->
+
+      <!-- Upload + controls -->
+      <div class="media-controls">
+        <label class="upload-btn" for="footageUpload">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10 3v10M10 3l-3 3M10 3l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Upload Footage
+        </label>
+        <input type="file" id="footageUpload" accept="video/*,image/*" class="sr-only" />
+
+        <button class="control-btn" id="analyzeBtn">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 7v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Analyze Frame
+        </button>
+
+        <button class="control-btn control-btn--ghost" id="resetBtn">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 10a6 6 0 116 6H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M4 13V10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Reset
+        </button>
+
+        <div class="frame-counter">
+          FRAMES ANALYZED: <span id="frameCounter">0</span>
+        </div>
+      </div>
+
+      <!-- Z-Axis live graph (full width at bottom of left col) -->
+      <div class="roughness-graph-card">
+        <div class="rg-header">
+          <span class="rg-title">Z-AXIS ROUGHNESS WAVEFORM</span>
+          <span class="rg-unit">Accelerometer · m/s²</span>
+        </div>
+        <canvas id="roughnessGraph" class="roughness-graph"></canvas>
+      </div>
+
+    </section><!-- /media-section -->
+
+    <!-- ── RIGHT COLUMN: Analytics Panel ─────────────── -->
+    <aside class="analytics-panel">
+
+      <!-- Potholes Counter -->
+      <div class="analytics-card card--potholes" id="cardPotholes">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <ellipse cx="12" cy="15" rx="7" ry="4" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M5 15c0-3 3.134-7 7-7s7 4 7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M9 11l1.5 2M15 11l-1.5 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="card-label">POTHOLES DETECTED</span>
+          <span class="card-trend" id="potholeTrend">— —</span>
+      </div>
+      <div class="card-body">
+          <div class="counter-display">
+            <span class="counter-value" id="sessionTotal">00</span>
+            <div class="counter-sparkline" id="sparkline"></div>
+          </div>
+          <div class="counter-sub">
+            <span class="sub-item">CURRENT FRAME</span>
+            <span class="sub-value" id="potholeCount">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Repair Cost -->
+      <div class="analytics-card card--cost">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M12 7v1m0 8v1M9.5 9.5A2.5 2.5 0 0112 8a2.5 2.5 0 012.5 2.5c0 1.5-2.5 2-2.5 3.5m0 0a2.5 2.5 0 002.5 2.5A2.5 2.5 0 0112 16a2.5 2.5 0 01-2.5-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="card-label">EST. REPAIR COST</span>
+          <span class="cost-per-unit">₹2,500 / defect</span>
+        </div>
+        <div class="card-body">
+          <div class="cost-display">
+            <span class="cost-currency">₹</span>
+            <span class="cost-value" id="repairCost">0</span>
+          </div>
+          <div class="cost-breakdown">
+            <div class="breakdown-bar">
+              <div class="breakdown-fill" id="costFill" style="width:0%"></div>
+            </div>
+            <span class="breakdown-label" id="costScale">₹0 — ₹50,000</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tire Abrasion Index -->
+      <div class="analytics-card card--abrasion">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/>
+              <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+              <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="card-label">TIRE ABRASION INDEX</span>
+        </div>
+        <div class="card-body">
+          <div class="badge-row">
+            <div class="abrasion-badge" id="abrasionBadge" data-level="low">
+              <span class="badge-icon" id="abrasionIcon">◎</span>
+              <span class="badge-text" id="abrasionText">LOW</span>
+            </div>
+            <div class="abrasion-meter">
+              <div class="meter-track">
+                <div class="meter-segment seg-low active" id="seg0"></div>
+                <div class="meter-segment seg-mod" id="seg1"></div>
+                <div class="meter-segment seg-crit" id="seg2"></div>
+              </div>
+              <div class="meter-labels">
+                <span>Low</span><span>Mod</span><span>Critical</span>
+              </div>
+            </div>
+          </div>
+          <p class="abrasion-detail" id="abrasionDetail">
+            Microplastic emission risk is minimal. Road surface is within acceptable tolerance.
+          </p>
+        </div>
+      </div>
+
+      <!-- Skid Risk Level -->
+      <div class="analytics-card card--skid">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M3 17l4-8 4 4 4-6 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="19" cy="17" r="1.5" fill="currentColor"/>
+              <circle cx="5" cy="17" r="1.5" fill="currentColor"/>
+            </svg>
+          </span>
+          <span class="card-label">SKID RISK LEVEL</span>
+        </div>
+        <div class="card-body">
+          <div class="skid-gauge-wrap">
+            <canvas id="skidGauge" class="skid-gauge" width="180" height="100"></canvas>
+            <div class="skid-badge-row">
+              <div class="skid-badge" id="skidBadge" data-level="safe">
+                <span id="skidText">SAFE</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Z-Axis Roughness Live -->
+      <div class="analytics-card card--zaxis">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M3 12h3l3-6 3 12 3-6 3 3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="card-label">Z-AXIS ROUGHNESS (G-FORCE)</span>
+          <span class="live-indicator">LIVE</span>
+        </div>
+        <div class="card-body">
+          <div class="zaxis-display">
+            <div class="zaxis-value-wrap">
+              <span class="zaxis-sign" id="zAxisSign">+</span>
+              <span class="zaxis-value" id="zAxisValue">0.00</span>
+              <span class="zaxis-unit">G</span>
+            </div>
+            <div class="zaxis-bars" id="zAxisBars">
+              <!-- Generated by JS -->
+            </div>
+          </div>
+          <div class="zaxis-meta">
+            <div class="zaxis-stat">
+              <span class="zstat-label">PEAK</span>
+              <span class="zstat-val" id="zPeak">0.00G</span>
+            </div>
+            <div class="zaxis-stat">
+              <span class="zstat-label">AVG</span>
+              <span class="zstat-val" id="zAvg">0.00G</span>
+            </div>
+            <div class="zaxis-stat">
+              <span class="zstat-label">EVENTS</span>
+              <span class="zstat-val" id="zEvents">0</span>
+            </div>
+          </div>
+          <div class="sensor-status" id="sensorStatus">
+            <span class="sensor-dot sensor-dot--warn"></span>
+            <span id="sensorStatusText">Awaiting sensor permission…</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Road Quality Score -->
+      <div class="analytics-card card--quality">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="card-label">ROAD QUALITY SCORE</span>
+        </div>
+        <div class="card-body">
+          <div class="quality-ring-wrap">
+            <canvas id="qualityRing" width="120" height="120"></canvas>
+            <div class="quality-ring-inner">
+              <span class="quality-score" id="qualityScore">100</span>
+              <span class="quality-grade" id="qualityGrade">A+</span>
+            </div>
+          </div>
+          <div class="quality-legend">
+            <span class="ql-item ql-a">A — Excellent</span>
+            <span class="ql-item ql-b">B — Good</span>
+            <span class="ql-item ql-c">C — Fair</span>
+            <span class="ql-item ql-d">D — Poor</span>
+          </div>
+        </div>
+      </div>
+
+    </aside><!-- /analytics-panel -->
+
+  </main>
+
+  <!-- ─── FOOTER ────────────────────────────────────── -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span class="footer-copy">TreadGuard CV · Road Safety Intelligence Platform</span>
+      <span class="footer-build">BUILD 2025.06 · ROBOFLOW + DEVICEMOTION</span>
+      <div class="footer-lights">
+        <span class="fl fl--green" title="System OK"></span>
+        <span class="fl fl--amber" id="flSensor" title="Sensor"></span>
+        <span class="fl fl--blue" id="flApi" title="API"></span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Upload preview modal -->
+  <div class="modal-overlay" id="uploadModal" hidden>
+    <div class="modal-box">
+      <button class="modal-close" id="modalClose">✕</button>
+      <h2 class="modal-title">Footage Loaded</h2>
+      <p class="modal-desc" id="modalDesc">File ready for analysis.</p>
+      <button class="modal-confirm" id="modalConfirm">Begin Analysis</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
