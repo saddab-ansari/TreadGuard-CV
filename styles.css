@@ -838,3 +838,45 @@ body::before {
   30%      { background: var(--accent-dim); }
 }
 .card-flash { animation: data-flash 0.4s ease-out; }
+
+
+/* ─────────────────────────────────────────────────
+   GPS DETECTION MINI-MAP CARD
+───────────────────────────────────────────────── */
+
+/* GPS status badge in card header */
+.gps-status-label {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.13em;
+  color: var(--amber);         /* amber = simulated, overridden to accent when live */
+  text-transform: uppercase;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.85;
+}
+
+/* Map card body — zero padding so canvas fills edge-to-edge */
+.map-card-body {
+  padding: 0;
+  margin-top: 0.5rem;
+}
+
+/* The mini-map canvas */
+.mini-map-canvas {
+  display: block;
+  width: 100%;          /* stretch to card width */
+  height: 200px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: #080c10;
+  /* Subtle inner border to separate from card */
+  box-shadow: inset 0 0 0 1px rgba(0,229,160,0.07);
+}
+
+/* Hover accent on the map card */
+#mapCard:hover {
+  border-color: rgba(0,229,160,0.15);
+  box-shadow: 0 0 0 1px rgba(0,229,160,0.06);
+}
