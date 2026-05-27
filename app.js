@@ -38,7 +38,19 @@ const CONFIG = {
   // ── API key lives in server.js (ROBOFLOW_API_KEY) ──────────────────────
   // Do NOT put it here — app.js is public; server.js is private/server-side.
 
-  COST_PER_POTHOLE: 2500,           // INR
+  // ── Road width for pixel→metre calibration ─────────────────────────────
+  // Standard Indian single lane = 3.5m (IRC:86). User can override via UI.
+  ROAD_WIDTH_METRES: 4.5,
+
+  // ── PWD-based repair rates (₹/m²) ───────────────────────────────────────
+  // Source: PWD Schedule of Rates — ₹573.33/m² base (materials+labour+royalty)
+  // Small patches cost more per m² due to fixed mobilization overhead.
+  REPAIR_RATE_SMALL:  900,    // < 0.1 m²  (micro patch)
+  REPAIR_RATE_MEDIUM: 700,    // 0.1–0.5 m² (standard patch)
+  REPAIR_RATE_LARGE:  573,    // > 0.5 m²  (PWD base rate)
+  REPAIR_MOBILIZATION: 500,   // ₹ flat call-out per pothole (labour fixed cost)
+
+  COST_PER_POTHOLE: 2500,           // INR (kept as fallback only)
   ABRASION_MODERATE_THRESHOLD: 5,
   ABRASION_CRITICAL_THRESHOLD: 12,
 
@@ -68,9 +80,11 @@ const State = {
   isDemoMode: false,          // Start in demo mode (safe fallback)
   potholeCount: 0,
   sessionTotal: 0,
+  totalRepairCost: 0,         // Cumulative area-based repair cost (₹)
   framesAnalyzed: 0,
   detections: [],            // Raw detection boxes from API/demo
   sparklineHistory: [],      // Last N pothole counts for sparkline
+  roadWidthMetres: 3.5,      // Calibration: real road width (default 1 lane = 3.5m)
 
   zAxis: {
     current: 0,
@@ -87,6 +101,13 @@ const State = {
   apiConnected: false,
 
   scanProgress: 0,
+  rollingCounts: [],        // Last 5 frame counts for smoothed skid/quality
+  rollingAreaSeverity: [],  // Last 5 frame area-severity scores (replaces count for scoring)
+  lastAnalyzedVideoTime: -1, // video.currentTime at last API call — prevents duplicate frames
+
+  // ── GPS & Detection Log ──────────────────────────────────────────────────
+  gps: { lat: 12.9716, lng: 77.5946, simulated: true }, // Bangalore fallback until real GPS arrives
+  detectionLog: [],   // { timestamp, lat, lng, count, repairCost } — capped at 50 entries
 };
 
 /* ─────────────────────────────────────────────────
@@ -136,12 +157,22 @@ async function analyzeFrame() {
  * Updates State.apiConnected accordingly.
  */
 async function runAnalysis() {
+  // ── Timestamp-based skip: only analyze if video has moved ≥0.8s since last scan ──
+  // Prevents the same frozen / slow frame from being counted twice in a row.
+  const video = document.getElementById('roadVideo');
+  if (video && video.readyState >= 2) {
+    const timeSinceLast = video.currentTime - State.lastAnalyzedVideoTime;
+    if (timeSinceLast < 0.8) {
+      console.log(`[TreadGuard] ⏭ Skipping — video only moved ${timeSinceLast.toFixed(2)}s (need ≥0.8s)`);
+      return;  // not enough new footage yet
+    }
+    State.lastAnalyzedVideoTime = video.currentTime;
+  }
+
   setScanBusy(true);
 
   try {
-    // Guard: only attempt live API when demo is off AND a real API key is set
-    // Guard: only call API when not in demo mode AND a real key is present
-    if (!State.isDemoMode) {  // Key lives in server.js — no guard needed here
+    if (!State.isDemoMode) {
       const data = await analyzeFrame();
 
       // ─── detect-count-and-visualize workflow actual response shape ──────────
@@ -281,11 +312,18 @@ function stopDemoMode() {
  */
 function processDetectionData(count, detections) {
   // 1. Bulletproof Confidence Filter
+// 1. Bulletproof Confidence & Size Filter
   const filtered = detections.filter(d => {
     const conf = d.confidence ?? 1;
-    // If the API returns 80 instead of 0.80, convert it to a decimal
     const normalizedConf = conf > 1 ? conf / 100 : conf;
-    return normalizedConf >= 0.50; // Strict 50% cutoff
+    
+    // Model space is 640px wide by 360px tall.
+    // If a bounding box covers more than 60% of the width or height, it's a false positive.
+    const isTooWide = d.width > (640 * 0.60);
+    const isTooTall = d.height > (360 * 0.60);
+
+    // Strict threshold: > 65% confidence AND box must be a realistic size
+    return normalizedConf >= 0.65 && !isTooWide && !isTooTall; 
   });
   const currentVisibleCount = filtered.length;
 
@@ -306,22 +344,107 @@ function processDetectionData(count, detections) {
   State.sessionTotal += newPotholesCrossedLine; // Actually accumulates now!
   State.detections = filtered;
 
-  // 4. Update the Sparkline history
+  // 4. Update Sparkline + rolling average (last 5 frames)
   State.sparklineHistory.push(currentVisibleCount);
   if (State.sparklineHistory.length > 10) State.sparklineHistory.shift();
+
+  State.rollingCounts.push(currentVisibleCount);
+  if (State.rollingCounts.length > 5) State.rollingCounts.shift();
+  const rollingAvg = Math.round(
+    State.rollingCounts.reduce((a, b) => a + b, 0) / State.rollingCounts.length
+  );
 
   animateScanProgress();
   driftCoordinates();
 
-  // 5. Update UI Widgets
+  // 5. Calculate area-based repair cost for this frame's detections
+  //    calculateFrameCost() enriches each det with ._metrics (areaSqM, sizeLabel, cost)
+  const frameCost = calculateFrameCost(filtered);
+  // Accumulate cost only when new potholes cross the tripwire line
+  State.totalRepairCost += newPotholesCrossedLine > 0
+    ? frameCost * (newPotholesCrossedLine / Math.max(1, filtered.length))
+    : 0;
+
+  // 5b. Area-severity score for THIS frame
+  //     = total pothole area (m²) × 20
+  //     Rationale: one L-tier pothole (0.56 m²) → severity 11.2 ≈ near-critical
+  //                three S-tier potholes (0.05 m² each) → severity 3.0 → low
+  //     This means a single massive pothole hurts scores far more than many tiny ones.
+  const frameAreaSqM = filtered.reduce((sum, d) => sum + (d._metrics?.areaSqM ?? 0), 0);
+  const frameAreaSeverity = frameAreaSqM * 20;
+
+  State.rollingAreaSeverity.push(frameAreaSeverity);
+  if (State.rollingAreaSeverity.length > 5) State.rollingAreaSeverity.shift();
+  const rollingSeverity = State.rollingAreaSeverity.reduce((a, b) => a + b, 0)
+                        / State.rollingAreaSeverity.length;
+
+  // 6. Log detection with current GPS for mini-map
+  if (currentVisibleCount > 0) {
+    State.detectionLog.push({
+      timestamp:  Date.now(),
+      lat:        State.gps.lat,
+      lng:        State.gps.lng,
+      count:      currentVisibleCount,
+      repairCost: Math.round(frameCost),
+    });
+    if (State.detectionLog.length > 50) State.detectionLog.shift();
+  }
+
+  // 7. Update UI Widgets
   updatePotholeCounter(currentVisibleCount, prev);
-  updateRepairCost(State.sessionTotal); // Cost is now based on TOTAL potholes driven over
-  updateAbrasionIndex(currentVisibleCount);
-  updateSkidRisk(currentVisibleCount);
-  updateQualityScore(currentVisibleCount);
+  updateRepairCost(Math.round(State.totalRepairCost));
+  // Skid, abrasion, quality now driven by area-severity (not raw count)
+  // so a single huge pothole scores worse than three tiny ones
+  updateAbrasionIndex(rollingSeverity);
+  updateSkidRisk(rollingSeverity);
+  updateQualityScore(rollingSeverity);
   updateHUD(currentVisibleCount);
   updateSparkline();
   renderDetectionBoxes(filtered);
+  drawMiniMap();
+}
+
+/* ─────────────────────────────────────────────────
+   AREA-BASED COST ENGINE
+   Converts pixel bboxes → real m² → PWD repair cost
+───────────────────────────────────────────────── */
+
+/**
+ * For a single detection bbox (in Roboflow model space, 640px wide),
+ * returns { areaSqM, sizeLabel, rate, cost } using PWD tiered rates.
+ */
+function calcPotholeMetrics(det) {
+  // Model space is 640 units wide = roadWidthMetres in real world
+  const mPerPx = State.roadWidthMetres / 640;
+
+  const widthM  = det.width  * mPerPx;
+  const heightM = det.height * mPerPx;
+  const areaSqM = widthM * heightM;
+
+  let rate, sizeLabel;
+  if (areaSqM < 0.10) {
+    rate = CONFIG.REPAIR_RATE_SMALL;  sizeLabel = 'S';
+  } else if (areaSqM < 0.50) {
+    rate = CONFIG.REPAIR_RATE_MEDIUM; sizeLabel = 'M';
+  } else {
+    rate = CONFIG.REPAIR_RATE_LARGE;  sizeLabel = 'L';
+  }
+
+  const cost = Math.round(areaSqM * rate + CONFIG.REPAIR_MOBILIZATION);
+  return { areaSqM, widthM, heightM, sizeLabel, rate, cost };
+}
+
+/**
+ * Sums repair cost across all detections in the current frame.
+ * Returns total ₹ for this frame and enriches each det with .metrics.
+ */
+function calculateFrameCost(detections) {
+  let frameCost = 0;
+  detections.forEach(det => {
+    det._metrics = calcPotholeMetrics(det);
+    frameCost += det._metrics.cost;
+  });
+  return frameCost;
 }
 
 /* ── Pothole Counter ── */
@@ -350,18 +473,20 @@ function updatePotholeCounter(count, prevCount) {
   flashCard('cardPotholes');
 }
 
-/* ── Repair Cost ── */
-function updateRepairCost(count) {
-  const cost = count * CONFIG.COST_PER_POTHOLE;
-  const el = document.getElementById('repairCost');
-  const fill = document.getElementById('costFill');
+/* ── Repair Cost (area-based, PWD rates) ── */
+function updateRepairCost(cost) {
+  const el    = document.getElementById('repairCost');
+  const fill  = document.getElementById('costFill');
   const scale = document.getElementById('costScale');
 
   animateNumber(el, parseInt(el.textContent.replace(/,/g, '') || '0'), cost, 600, true);
 
   const pct = Math.min(100, (cost / CONFIG.MAX_COST_BAR) * 100);
   fill.style.width = `${pct}%`;
-  scale.textContent = `₹0 — ₹${CONFIG.MAX_COST_BAR.toLocaleString('en-IN')}`;
+
+  // Show per-m² context in the scale label
+  const rateNote = `₹573–900/m² · PWD rate`;
+  scale.textContent = `₹0 — ₹${CONFIG.MAX_COST_BAR.toLocaleString('en-IN')}  |  ${rateNote}`;
 }
 
 /* ── Tire Abrasion Index ── */
@@ -417,19 +542,23 @@ function updateSkidRisk(count) {
 }
 
 /* ── Quality Score ── */
-function updateQualityScore(count) {
-  // Score = 100 - (count * 5), clamped to 0-100
-  const score = Math.max(0, 100 - count * 5);
+function updateQualityScore(severity) {
+  // Score = 100 - (severity * 7), clamped 0–100
+  // severity = rolling avg of (total pothole area m² × 20)
+  // severity 0→100(A+),  ~2→86(A),  ~5→65(B),  ~8→44(C),  ~12→16(D),  ≥14→0(F)
+  // One L-pothole (0.56m²) → severity≈11 → D/F range — correct for a destroyed road
+  const score = Math.max(0, 100 - severity * 7);
   const el    = document.getElementById('qualityScore');
   const grade = document.getElementById('qualityGrade');
 
   animateNumber(el, parseInt(el.textContent || '100'), score, 600);
 
-  if (score >= 90)      { grade.textContent = 'A+'; grade.style.color = 'var(--accent)'; }
+  if      (score >= 90) { grade.textContent = 'A+'; grade.style.color = 'var(--accent)'; }
   else if (score >= 75) { grade.textContent = 'A';  grade.style.color = 'var(--accent)'; }
   else if (score >= 60) { grade.textContent = 'B';  grade.style.color = '#4ade80'; }
-  else if (score >= 45) { grade.textContent = 'C';  grade.style.color = 'var(--amber)'; }
-  else                  { grade.textContent = 'D';  grade.style.color = 'var(--red)'; }
+  else if (score >= 40) { grade.textContent = 'C';  grade.style.color = 'var(--amber)'; }
+  else if (score >= 20) { grade.textContent = 'D';  grade.style.color = 'var(--red)'; }
+  else                  { grade.textContent = 'F';  grade.style.color = 'var(--red)'; }
 
   drawQualityRing(score);
 }
@@ -736,9 +865,10 @@ function renderDetectionBoxes(detections) {
       ctx.stroke();
     });
 
-    // Label background
+    // Label: show size category, area, cost
     ctx.shadowBlur = 0;
-    const label = `#${i+1} ${(conf * 100).toFixed(0)}%`;
+    const m = det._metrics || calcPotholeMetrics(det);
+    const label = `#${i+1} [${m.sizeLabel}] ${m.areaSqM.toFixed(2)}m² ₹${m.cost.toLocaleString('en-IN')}`;
     ctx.font = '600 9px "Space Mono", monospace';
     const tw = ctx.measureText(label).width;
     ctx.fillStyle = color + 'cc';
@@ -1073,8 +1203,8 @@ function drawSkidGauge(count) {
     ctx.stroke();
   });
 
-  // Active needle value (count mapped 0-20 → 0-1)
-  const value   = Math.min(1, count / 20);
+  // Active needle value (count mapped 0-12 → 0-1, 12+ potholes = full hazard)
+  const value   = Math.min(1, count / 12);
   const fillEnd = startAngle + value * totalArc;
 
   const fillColor = value > 0.66 ? '#ef4444' :
@@ -1285,6 +1415,85 @@ function initUploadHandler() {
 /* ─────────────────────────────────────────────────
    12. UI CONTROLS, SESSION CLOCK, DEMO TOGGLE
 ───────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────
+   REPORT GENERATOR
+───────────────────────────────────────────────── */
+function generateReport() {
+  const now = new Date().toLocaleString('en-IN');
+  const elapsed = Math.floor((Date.now() - State.sessionStartTime) / 1000);
+  const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
+  
+  const qualityScore = document.getElementById('qualityScore').textContent;
+  const qualityGrade = document.getElementById('qualityGrade').textContent;
+  const abrasionLevel = document.getElementById('abrasionText').textContent;
+  
+  const topEvents = [...State.detectionLog].sort((a, b) => b.repairCost - a.repairCost).slice(0, 5);
+    
+  let tableHtml = '';
+  if (topEvents.length > 0) {
+    tableHtml = `
+      <h3>Top 5 High-Cost Detection Events</h3>
+      <table>
+        <thead><tr><th>Time</th><th>Lat</th><th>Lng</th><th>Count</th><th>Est. Cost (₹)</th></tr></thead>
+        <tbody>
+          ${topEvents.map(e => `
+            <tr>
+              <td>${new Date(e.timestamp).toLocaleTimeString('en-IN')}</td>
+              <td>${e.lat.toFixed(4)}</td><td>${e.lng.toFixed(4)}</td>
+              <td>${e.count}</td><td>${e.repairCost.toLocaleString('en-IN')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } else {
+    tableHtml = '<p>No defect events logged during this session.</p>';
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>TreadGuard CV Report</title>
+      <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; padding: 40px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #111; border-bottom: 2px solid #00e5a0; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 30px 0; }
+        .metric { background: #f9f9f9; padding: 15px; border-left: 4px solid #00e5a0; }
+        .metric-label { font-size: 11px; text-transform: uppercase; color: #777; font-weight: bold; }
+        .metric-value { font-size: 22px; font-weight: bold; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f5f5f5; font-size: 12px; text-transform: uppercase; }
+        .footer { margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>TreadGuard CV — Road Audit Report</h1>
+      <p><strong>Export Date:</strong> ${now}<br><strong>Session Duration:</strong> ${h}:${m}:${s}</p>
+      
+      <div class="grid">
+        <div class="metric"><div class="metric-label">Total Potholes Detected</div><div class="metric-value">${State.sessionTotal}</div></div>
+        <div class="metric"><div class="metric-label">Est. Repair Cost</div><div class="metric-value">₹${Math.round(State.totalRepairCost).toLocaleString('en-IN')}</div></div>
+        <div class="metric"><div class="metric-label">Road Quality</div><div class="metric-value">${qualityScore} (Grade ${qualityGrade})</div></div>
+        <div class="metric"><div class="metric-label">Tire Abrasion Index</div><div class="metric-value">${abrasionLevel}</div></div>
+        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force</div><div class="metric-value">${Math.abs(State.zAxis.peak).toFixed(2)}G</div></div>
+        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
+      </div>
+      ${tableHtml}
+      <div class="footer">Generated by TreadGuard CV · Roboflow pothole detection model · PWD repair rate basis</div>
+      <script>window.onload = () => { window.print(); };</script>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
 function initControls() {
   /* ── Auto-Analyze Loop ── */
   let scanInterval = null;
@@ -1292,6 +1501,97 @@ function initControls() {
   
   const analyzeBtn = document.getElementById('analyzeBtn');
   const video      = document.getElementById('roadVideo');
+  /* ── Live Camera Button ── */
+
+  const liveCamBtn = document.getElementById('liveCamBtn');
+  if (liveCamBtn) {
+    liveCamBtn.addEventListener('click', startLiveCamera);
+  }
+
+  /* ── Download Report Button ── */
+  const downloadReportBtn = document.getElementById('downloadReportBtn');
+  if (downloadReportBtn) {
+    downloadReportBtn.addEventListener('click', generateReport);
+  }
+
+  // ── Road Width Input ─────────────────────────────────────────────────────
+  // Inject a small calibration field next to the frames counter
+  const framesEl = document.querySelector('.frames-counter');
+  if (framesEl) {
+    const widthUI = document.createElement('div');
+    widthUI.style.cssText = `
+      display:inline-flex; align-items:center; gap:6px;
+      font:600 10px 'Space Mono',monospace;
+      color:var(--text-secondary); margin-left:18px;
+    `;
+    widthUI.innerHTML = `
+      <span style="color:var(--text-muted)">ROAD WIDTH</span>
+      <input id="roadWidthInput" type="number" min="1" max="20" step="0.5"
+        value="${State.roadWidthMetres}"
+        style="
+          width:52px; background:var(--bg-card); border:1px solid var(--border);
+          color:var(--accent); font:600 10px 'Space Mono',monospace;
+          padding:3px 5px; border-radius:4px; text-align:center;
+        "
+      />
+      <span style="color:var(--text-muted)">M</span>
+    `;
+    framesEl.parentNode.insertBefore(widthUI, framesEl);
+
+    document.getElementById('roadWidthInput').addEventListener('change', (e) => {
+      const val = parseFloat(e.target.value);
+      if (!isNaN(val) && val > 0) {
+        State.roadWidthMetres = val;
+        CONFIG.ROAD_WIDTH_METRES = val;
+        console.log(`[TreadGuard] Road width updated to ${val}m`);
+      }
+    });
+  }
+
+/* ─────────────────────────────────────────────────
+   LIVE CAMERA HANDLER
+───────────────────────────────────────────────── */
+async function startLiveCamera() {
+  const video = document.getElementById('roadVideo');
+  const scanStatus = document.getElementById('scanStatusText');
+  
+  try {
+    // Stop any existing stream (if the user uploaded a video previously)
+    if (video.src) {
+        video.src = '';
+    }
+
+    // Request the device camera (preferring the rear/main camera on phones)
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        facingMode: 'environment', // Forces rear camera
+        width: { ideal: 1280 },    // Request a decent resolution
+        height: { ideal: 720 }
+      },
+      audio: false // We don't need audio for road audits
+    });
+    
+    // Pipe the live stream into the video element
+    video.srcObject = stream;
+    
+    // Play the video stream
+    await video.play();
+    scanStatus.textContent = 'CAMERA LIVE ✓';
+
+    // Optional: Automatically start scanning 1 second after the camera boots up
+    setTimeout(() => {
+      const analyzeBtn = document.getElementById('analyzeBtn');
+      // If we aren't scanning yet, click the button
+      if (analyzeBtn.textContent.includes('Start')) {
+        analyzeBtn.click();
+      }
+    }, 1000);
+
+  } catch (err) {
+    console.error('[TreadGuard] Camera access denied or failed:', err);
+    alert('Could not access camera. Ensure you are on HTTPS and have granted camera permissions.');
+  }
+}
 
   // ── Helper: cleanly stop the scan loop ───────────────────────────────
   function stopScanning() {
@@ -1320,11 +1620,11 @@ function initControls() {
       e.target.style.background = 'var(--red)';
       e.target.style.color = '#fff';
 
-      // Run once immediately, then every 1 second
+      // Run once immediately, then every 500ms for faster paced video
       runAnalysis();
       scanInterval = setInterval(() => {
         runAnalysis();
-      }, 1000);
+      }, 500);
     } else {
       stopScanning();
     }
@@ -1332,10 +1632,14 @@ function initControls() {
 
   /* ── Reset Button ── */
   document.getElementById('resetBtn').addEventListener('click', () => {
-    State.potholeCount   = 0;
-    State.sessionTotal   = 0;
-    State.framesAnalyzed = 0;
-    State.sparklineHistory = [];
+    State.potholeCount        = 0;
+    State.sessionTotal        = 0;
+    State.totalRepairCost     = 0;
+    State.rollingCounts       = [];
+    State.rollingAreaSeverity = [];
+    State.lastAnalyzedVideoTime = -1;
+    State.framesAnalyzed      = 0;
+    State.sparklineHistory    = [];
     State.zAxis.peak     = 0;
     State.zAxis.events   = 0;
     State.zAxis.readings = [];
@@ -1394,7 +1698,182 @@ function startSessionClock() {
 }
 
 /* ─────────────────────────────────────────────────
-   13. INITIALIZER
+   13. GPS + MINI-MAP
+───────────────────────────────────────────────── */
+
+/**
+ * Starts the GPS watchPosition loop.
+ * On success: stores real coords in State.gps (simulated=false).
+ * On deny / unsupported: falls back to Bangalore and logs a warning.
+ */
+function initGPS() {
+  if (!navigator.geolocation) {
+    console.warn('[TreadGuard] Geolocation not supported — using Bangalore fallback.');
+    State.gps = { lat: 12.9716, lng: 77.5946, simulated: true };
+    updateGPSLabel();
+    return;
+  }
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      State.gps = {
+        lat:      pos.coords.latitude,
+        lng:      pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        simulated: false,
+      };
+      updateGPSLabel();
+    },
+    (err) => {
+      console.warn('[TreadGuard] GPS denied — using Bangalore fallback.', err.message);
+      State.gps = { lat: 12.9716, lng: 77.5946, simulated: true };
+      updateGPSLabel();
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+  );
+}
+
+/**
+ * Syncs the GPS status badge + HUD coordinate readout
+ * to the current State.gps values.
+ */
+function updateGPSLabel() {
+  const badge = document.getElementById('gpsStatusLabel');
+  if (badge) {
+    if (State.gps.simulated) {
+      badge.textContent = 'GPS SIMULATED';
+      badge.style.color = 'var(--amber)';
+    } else {
+      badge.textContent = 'GPS LIVE';
+      badge.style.color = 'var(--accent)';
+    }
+  }
+  // Update HUD lat/lng readout
+  const lat = Math.abs(State.gps.lat).toFixed(4);
+  const lng = Math.abs(State.gps.lng).toFixed(4);
+  const latDir = State.gps.lat >= 0 ? 'N' : 'S';
+  const lngDir = State.gps.lng >= 0 ? 'E' : 'W';
+  const latEl = document.getElementById('hudLat');
+  const lngEl = document.getElementById('hudLng');
+  if (latEl) latEl.textContent = `LAT ${lat}°${latDir}`;
+  if (lngEl) lngEl.textContent = `LNG ${lng}°${lngDir}`;
+}
+
+/**
+ * Redraws the 400×200 mini-map canvas from State.detectionLog.
+ * Each entry is a dot colour-coded by pothole count.
+ * If fewer than 2 points exist, shows a "Drive to populate map" prompt.
+ */
+function drawMiniMap() {
+  const canvas = document.getElementById('miniMapCanvas');
+  if (!canvas) return;
+  const W   = canvas.width;   // 400
+  const H   = canvas.height;  // 200
+  const ctx = canvas.getContext('2d');
+  const log = State.detectionLog;
+
+  // ── Background ──
+  ctx.fillStyle = '#080c10';
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Subtle grid ──
+  ctx.strokeStyle = 'rgba(0,229,160,0.05)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // ── Empty state ──
+  if (log.length < 2) {
+    ctx.font = '600 10px "Space Mono", monospace';
+    ctx.fillStyle = 'rgba(0,229,160,0.28)';
+    ctx.textAlign = 'center';
+    ctx.fillText('DRIVE TO POPULATE MAP', W / 2, H / 2 - 8);
+    ctx.font = '400 9px "Space Mono", monospace';
+    ctx.fillStyle = 'rgba(0,229,160,0.15)';
+    ctx.fillText('detection dots appear as potholes are found', W / 2, H / 2 + 10);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  // ── Compute bounding box ──
+  const lats   = log.map(e => e.lat);
+  const lngs   = log.map(e => e.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  // Guard against all-same coords (e.g. simulated GPS)
+  const latRange = maxLat - minLat || 0.001;
+  const lngRange = maxLng - minLng || 0.001;
+
+  const PAD  = 22;
+  const mapW = W - PAD * 2;
+  const mapH = H - PAD * 2 - 18; // reserve bottom 18px for legend
+
+  // ── Path connecting dots ──
+  ctx.strokeStyle = 'rgba(0,229,160,0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  log.forEach((e, i) => {
+    const x = PAD + ((e.lng - minLng) / lngRange) * mapW;
+    const y = PAD + (1 - (e.lat - minLat) / latRange) * mapH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // ── Dots ──
+  log.forEach((e, i) => {
+    const x = PAD + ((e.lng - minLng) / lngRange) * mapW;
+    const y = PAD + (1 - (e.lat - minLat) / latRange) * mapH;
+
+    const color = e.count > 7  ? '#ef4444'
+                : e.count >= 3 ? '#f59e0b'
+                :                '#00e5a0';
+
+    // Glow halo
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = color + '22';
+    ctx.fill();
+
+    // Core dot
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = color + '99';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Most-recent dot gets an extra ring
+    if (i === log.length - 1) {
+      ctx.beginPath();
+      ctx.arc(x, y, 9, 0, Math.PI * 2);
+      ctx.strokeStyle = color + '55';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  // ── Legend (bottom strip) ──
+  const legendY = H - 7;
+  ctx.font = '500 8px "Space Mono", monospace';
+  ctx.textAlign = 'left';
+  const legend = [
+    { color: '#00e5a0', label: '< 3  potholes' },
+    { color: '#f59e0b', label: '3–7  potholes' },
+    { color: '#ef4444', label: '> 7  potholes' },
+  ];
+  legend.forEach((item, i) => {
+    const lx = PAD + i * 118;
+    ctx.beginPath();
+    ctx.arc(lx + 4, legendY - 3, 3, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillText(item.label, lx + 11, legendY);
+  });
+}
+
+/* ─────────────────────────────────────────────────
+   14. INITIALIZER (formerly 13)
 ───────────────────────────────────────────────── */
 
 /**
@@ -1478,6 +1957,9 @@ function init() {
   // Start session clock
   startSessionClock();
 
+  // Start GPS watcher (real or fallback)
+  initGPS();
+
   // Start Z-axis sensor (real or simulated)
   initZAxisSensor();
 
@@ -1489,6 +1971,9 @@ function init() {
     renderDetectionBoxes(State.detections);
     drawRoughnessGraph(State.roughnessHistory);
   });
+
+  // Warm-up: draw empty mini-map placeholder
+  drawMiniMap();
 
   // Warm-up animation: feed initial zero state
   processDetectionData(0, []);
