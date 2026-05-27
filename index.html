@@ -11,6 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="styles.css" />
+  <!-- Suppress favicon 404 -->
+  <link rel="icon" href="data:,">
 </head>
 <body>
 
@@ -137,6 +139,14 @@
           Upload Footage
         </label>
         <input type="file" id="footageUpload" accept="video/*,image/*" class="sr-only" />
+        
+        <button class="control-btn" id="liveCamBtn">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="3" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+          Live Camera
+        </button>
 
         <button class="control-btn" id="analyzeBtn">
           <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -152,6 +162,13 @@
             <path d="M4 13V10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Reset
+        </button>
+
+        <button class="control-btn control-btn--ghost" id="downloadReportBtn">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 16v1a2 2 0 002 2h8a2 2 0 002-2v-1M10 4v9M7 10l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Download Report
         </button>
 
         <div class="frame-counter">
@@ -208,7 +225,7 @@
             </svg>
           </span>
           <span class="card-label">EST. REPAIR COST</span>
-          <span class="cost-per-unit">₹2,500 / defect</span>
+          <span class="cost-per-unit">PWD Area-Based Rate</span>
         </div>
         <div class="card-body">
           <div class="cost-display">
@@ -350,6 +367,23 @@
             <span class="ql-item ql-c">C — Fair</span>
             <span class="ql-item ql-d">D — Poor</span>
           </div>
+        </div>
+      </div>
+
+      <!-- GPS Detection Mini-Map -->
+      <div class="analytics-card card--map" id="mapCard">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 2C8.686 2 6 4.686 6 8c0 5.25 6 14 6 14s6-8.75 6-14c0-3.314-2.686-6-6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <circle cx="12" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </span>
+          <span class="card-label">DETECTION MAP</span>
+          <span class="gps-status-label" id="gpsStatusLabel">GPS SIMULATED</span>
+        </div>
+        <div class="card-body map-card-body">
+          <canvas id="miniMapCanvas" width="400" height="200" class="mini-map-canvas"></canvas>
         </div>
       </div>
 
