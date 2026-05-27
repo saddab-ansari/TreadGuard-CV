@@ -20,7 +20,7 @@ const app  = express();
 const PORT = 3000;
 
 // ── Roboflow config ────────────────────────────────────────────────────────
-const ROBOFLOW_API_KEY  = '3QrIo9K7Gb6fx8oeHfYs'; // your key
+const ROBOFLOW_API_KEY  = '8JrtmfXQ7ODSLGF2kByF'; // your key
 const ROBOFLOW_ENDPOINT =
   'https://serverless.roboflow.com/infer/workflows/saddabs-workspace/detect-count-and-visualize';
 
