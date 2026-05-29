@@ -122,6 +122,9 @@ const State = {
   validationFrames: [],
   validatedPotholesCount: 0,
   validatedRepairCost: 0,
+  
+  // ── Tire Wear Predictive Data ──
+  currentTWP: 0,
 };
 
 function captureCurrentFrame() {
@@ -986,6 +989,58 @@ function processZAxisReading(gz) {
 
   updateZAxisBars(State.zAxis.history);
   drawRoughnessGraph(State.roughnessHistory);
+  document.getElementById('zEvents').textContent = State.zAxis.events;
+
+  updateZAxisBars(State.zAxis.history);
+  drawRoughnessGraph(State.roughnessHistory);
+  
+  // NEW: Update Tire Wear Prediction using latest Z-Axis data
+  updateTireWearModel();
+
+}
+/* ── Tire Wear Particle (TWP) Predictive Engine ── */
+function updateTireWearModel() {
+  const vehEl = document.getElementById('twVehicleType');
+  const paxEl = document.getElementById('twPax');
+  const valEl = document.getElementById('twEmissionValue');
+  if (!vehEl || !paxEl || !valEl) return;
+
+  const baseWeight = parseFloat(vehEl.value) || 1400;
+  const paxCount = parseInt(paxEl.value) || 1;
+  const totalMass = baseWeight + (paxCount * 68); // 68kg avg human weight
+
+  // Grab active telemetry
+  const avgG = State.zAxis.readings.length > 0 
+    ? State.zAxis.readings.reduce((a, b) => a + b, 0) / State.zAxis.readings.length 
+    : 0;
+  const events = State.zAxis.events;
+
+  // TWP Formula
+  const baseFriction = 0.067; // mg/km per kg of mass
+  const roughnessMultiplier = 1 + (avgG * 1.5);
+  const impactMultiplier = 1 + (events * 0.02);
+  
+  const rawEmission = totalMass * baseFriction * roughnessMultiplier * impactMultiplier;
+  State.currentTWP = parseFloat(rawEmission.toFixed(2));
+
+  // Update UI and color code
+  valEl.textContent = State.currentTWP.toFixed(2);
+  
+  // Thresholds based on vehicle type to keep colors accurate
+  const isHeavy = baseWeight > 2000;
+  const critLimit = isHeavy ? 600 : 250;
+  const warnLimit = isHeavy ? 450 : 150;
+
+  if (State.currentTWP > critLimit) {
+    valEl.style.color = 'var(--red)';
+    valEl.style.textShadow = '0 0 15px rgba(239,68,68,0.5)';
+  } else if (State.currentTWP > warnLimit) {
+    valEl.style.color = 'var(--amber)';
+    valEl.style.textShadow = '0 0 15px rgba(245,158,11,0.5)';
+  } else {
+    valEl.style.color = 'var(--accent)';
+    valEl.style.textShadow = '0 0 15px var(--accent-glow)';
+  }
 }
 
 function setZAxisNoData() {
@@ -1131,8 +1186,8 @@ function drawRoughnessGraph(data) {
 
   // Gradient fill
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, 'rgba(0,229,160,0.3)');
-  grad.addColorStop(1, 'rgba(0,229,160,0)');
+  grad.addColorStop(0, 'rgba(0, 210, 106, 0.65)'); // Much stronger top color
+  grad.addColorStop(1, 'rgba(0, 210, 106, 0.05)'); // Leaves a subtle base tint
 
   // Draw filled area
   ctx.beginPath();
@@ -1150,9 +1205,9 @@ function drawRoughnessGraph(data) {
   // Draw line
   ctx.beginPath();
   ctx.strokeStyle = 'var(--accent)';
-  ctx.lineWidth   = 1.5;
+  ctx.lineWidth   = 2.5; // Thicker, bolder line
   ctx.shadowColor = 'var(--accent)';
-  ctx.shadowBlur  = 4;
+  ctx.shadowBlur  = 12;  // Increased neon glow effect
   data.forEach((val, i) => {
     const x = i * stepX;
     const y = H - (Math.min(val, max) / max) * H * 0.92;
@@ -1740,6 +1795,86 @@ const printWindow = window.open('', '_blank');
 }
 
 /* ─────────────────────────────────────────────────
+   TIRE ABRASION REPORT GENERATOR
+───────────────────────────────────────────────── */
+function generateAbrasionReport() {
+  const now = new Date().toLocaleString('en-IN');
+  const vehEl = document.getElementById('twVehicleType');
+  const paxEl = document.getElementById('twPax');
+  
+  const baseWeight = parseFloat(vehEl.value) || 1400;
+  const paxCount = parseInt(paxEl.value) || 1;
+  const totalMass = baseWeight + (paxCount * 68);
+  
+  let vehName = '4-Wheeler';
+  if (baseWeight === 150) vehName = '2-Wheeler';
+  if (baseWeight === 4500) vehName = 'Heavy Duty Transit';
+
+  const avgG = State.zAxis.readings.length > 0 
+    ? State.zAxis.readings.reduce((a, b) => a + b, 0) / State.zAxis.readings.length 
+    : 0;
+
+  const isHeavy = baseWeight > 2000;
+  const critLimit = isHeavy ? 600 : 250;
+  const emissionColor = State.currentTWP > critLimit ? '#ef4444' : '#00e5a0';
+  const statusLabel = State.currentTWP > critLimit ? 'CRITICAL EMISSION' : 'WITHIN LIMITS';
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>TreadGuard CV - Tire Wear Report</title>
+      <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; padding: 40px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #111; border-bottom: 2px solid #f59e0b; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 30px 0; }
+        .metric { background: #f9f9f9; padding: 15px; border-left: 4px solid #f59e0b; }
+        .metric-label { font-size: 11px; text-transform: uppercase; color: #777; font-weight: bold; }
+        .metric-value { font-size: 22px; font-weight: bold; margin-top: 4px; color: #111;}
+        .highlight-box { background: #111; color: white; padding: 25px; border-radius: 8px; text-align: center; margin: 30px 0; border-bottom: 5px solid ${emissionColor}; }
+        .formula-box { background: #f1f5f9; padding: 20px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #334155; margin-bottom: 30px; }
+        .footer { margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>TreadGuard CV — Predictive Microplastic Report</h1>
+      <p><strong>Export Date:</strong> ${now}<br><strong>Audit Type:</strong> Environmental Tire Abrasion Telemetry</p>
+      
+      <div class="highlight-box">
+        <div style="font-size: 12px; letter-spacing: 2px; color: #888; margin-bottom: 10px;">PREDICTED TIRE WEAR EMISSION</div>
+        <div style="font-size: 48px; font-weight: bold; color: ${emissionColor}; line-height: 1;">${State.currentTWP.toFixed(2)} <span style="font-size: 20px;">mg/km</span></div>
+        <div style="font-size: 14px; margin-top: 10px; font-weight: bold; color: ${emissionColor};">${statusLabel}</div>
+      </div>
+
+      <div class="grid">
+        <div class="metric"><div class="metric-label">Vehicle Type</div><div class="metric-value">${vehName}</div></div>
+        <div class="metric"><div class="metric-label">Total Moving Mass</div><div class="metric-value">${totalMass} kg</div></div>
+        <div class="metric"><div class="metric-label">Passengers (Avg 68kg)</div><div class="metric-value">${paxCount}</div></div>
+        <div class="metric"><div class="metric-label">Hardware Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
+      </div>
+      
+      <h3>Predictive Modeling Formula Applied</h3>
+      <div class="formula-box">
+        E_twp = (W_veh + (N × 68)) × β × (1 + (G_avg × 1.5)) × (1 + (E_bump × 0.02))<br><br>
+        <strong>Parameters Used:</strong><br>
+        Base Friction Constant (β) = 0.067 mg/km/kg<br>
+        Average Roughness (G_avg) = ${avgG.toFixed(3)} G<br>
+        Impact Event Count (E_bump) = ${State.zAxis.events}
+      </div>
+
+      <div class="footer">Generated by TreadGuard CV · Environmental Telemetry Engine</div>
+      <script>window.onload = () => { window.print(); };</script>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+/* ─────────────────────────────────────────────────
    12. UI CONTROLS & CLOCK
 ───────────────────────────────────────────────── */
 function initControls() {
@@ -1835,6 +1970,12 @@ function initControls() {
     });
   })();
 
+  // ── NEW: Tire Wear Input Listeners ──
+  const vehInput = document.getElementById('twVehicleType');
+  const paxInput = document.getElementById('twPax');
+  if (vehInput) vehInput.addEventListener('change', updateTireWearModel);
+  if (paxInput) paxInput.addEventListener('input', updateTireWearModel);
+
   // ── Auto-stop when the video finishes playing ─────────────────────────
   video.addEventListener('ended', () => {
     if (isScanning) {
@@ -1929,6 +2070,11 @@ processDetectionData(0, []);
   const downloadManualReportBtn = document.getElementById('downloadManualReportBtn');
   if (downloadManualReportBtn) {
     downloadManualReportBtn.addEventListener('click', generateManualReport);
+  }
+
+  const downloadAbrasionReportBtn = document.getElementById('downloadAbrasionReportBtn');
+  if (downloadAbrasionReportBtn) {
+    downloadAbrasionReportBtn.addEventListener('click', generateAbrasionReport);
   }
 
   /* ── Validation Dashboard Initialization ── */
