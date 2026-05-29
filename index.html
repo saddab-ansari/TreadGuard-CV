@@ -1,509 +1,952 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TreadGuard CV — Predictive Road Audits</title>
+/* ═══════════════════════════════════════════════════
+   TreadGuard CV — styles.css
+   Aesthetic: Dark-mode cinematic HUD / industrial audit tool
+   Fonts: Bebas Neue (display) + Space Mono (data) + DM Sans (body)
+═══════════════════════════════════════════════════ */
 
-  <!-- Google Fonts: Cinematic pairing -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
+/* ─── CSS Variables ───────────────────────────────── */
+:root {
+  /* Backgrounds & Surfaces */
+  --bg-base:       #050505;
+  --bg-surface:    #0e0f11;
+  --bg-card:       #16181a;
+  --bg-card-hover: #1e2024;
+  --bg-glass:      rgba(22, 24, 26, 0.85);
 
-  <link rel="stylesheet" href="styles.css" />
-  <!-- Suppress favicon 404 -->
-  <link rel="icon" href="data:,">
-</head>
-<body>
+  /* Borders */
+  --border:        rgba(255, 255, 255, 0.08);
+  --border-accent: rgba(0, 210, 106, 0.3);
 
-  <!-- Ambient background noise texture -->
-  <div class="bg-grain"></div>
+  /* Accents (Neon Green & Crypto Gold) */
+  --accent:        #00d26a;
+  --accent-dim:    rgba(0, 210, 106, 0.15);
+  --accent-glow:   rgba(0, 210, 106, 0.4);
 
-  <!-- Scanline overlay for CRT feel -->
-  <div class="scanlines"></div>
+  --amber:         #f7931a;
+  --amber-dim:     rgba(247, 147, 26, 0.15);
+  
+  /* Alerts */
+  --red:           #ef4444;
+  --red-dim:       rgba(239, 68, 68, 0.15);
+  --blue:          #3b82f6;
+  --blue-dim:      rgba(59, 130, 246, 0.15);
 
-  <!-- ─── HEADER ──────────────────────────────────────── -->
-  <header class="site-header">
-    <div class="header-inner">
-      <div class="logo-block">
-        <div class="logo-icon">
-          <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="18" cy="18" r="17" stroke="var(--accent)" stroke-width="1.5"/>
-            <circle cx="18" cy="18" r="9" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 2"/>
-            <circle cx="18" cy="18" r="3" fill="var(--accent)"/>
-            <line x1="18" y1="1" x2="18" y2="7" stroke="var(--accent)" stroke-width="1.5"/>
-            <line x1="18" y1="29" x2="18" y2="35" stroke="var(--accent)" stroke-width="1.5"/>
-            <line x1="1" y1="18" x2="7" y2="18" stroke="var(--accent)" stroke-width="1.5"/>
-            <line x1="29" y1="18" x2="35" y2="18" stroke="var(--accent)" stroke-width="1.5"/>
-          </svg>
-        </div>
-        <div>
-          <h1 class="site-title">TreadGuard <span class="title-cv">CV</span></h1>
-          <p class="site-subtitle">Predictive Road Audits &amp; Abrasion Analytics</p>
-        </div>
-      </div>
+  /* Typography */
+  --text-primary:  #f9fafb;
+  --text-secondary:#9ca3af;
+  --text-muted:    #4b5563;
 
-      <div class="header-right">
-        <div class="status-pill" id="statusPill">
-          <span class="status-dot" id="statusDot"></span>
-          <span id="statusLabel">API Live</span>
-        </div>
-        <button class="toggle-btn" id="demoToggle" title="Toggle Demo / Live Mode">
-          <span class="toggle-label">DEMO</span>
-          <div class="toggle-track">
-            <div class="toggle-thumb" id="toggleThumb"></div>
-          </div>
-        </button>
-        <div class="session-time">
-          <span class="session-label">SESSION</span>
-          <span class="session-clock" id="sessionClock">00:00:00</span>
-        </div>
-      </div>
-    </div>
-    <!-- Scanning progress bar -->
-    <div class="scan-progress-bar"><div class="scan-progress-fill" id="scanProgress"></div></div>
-  </header>
+  /* Typography Fonts & Radii (Kept from original) */
+  --font-display:  'Bebas Neue', sans-serif;
+  --font-mono:     'Space Mono', monospace;
+  --font-body:     'DM Sans', sans-serif;
 
-  <!-- ─── MAIN GRID ─────────────────────────────────── -->
-  <main class="dashboard-grid">
+  --radius-sm:     4px;
+  --radius-md:     8px;
+  --radius-lg:     14px;
 
-    <!-- ── LEFT COLUMN: Media Viewer ─────────────────── -->
-    <section class="media-section">
+  --transition:    160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-      <div class="media-container" id="mediaContainer">
+/* ─── Reset ───────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+button { cursor: pointer; font-family: inherit; border: none; background: none; }
+input  { font-family: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
-        <!-- Road background canvas: drawn by JS in demo mode -->
-        <canvas id="roadBgCanvas" class="road-bg-canvas"></canvas>
+/* ─── Ambient Effects ─────────────────────────────── */
+.bg-grain {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  opacity: 0.5;
+}
 
-        <!-- Video element (loops, muted, plays in-browser) -->
-        <video
-          id="roadVideo"
-          class="road-video"
-          autoplay
-          muted
-          playsinline
-        >
-          <!-- No src: transparent by default; road canvas shows through -->
-          <source src="" type="video/mp4" />
-        </video>
+.scanlines {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0,0,0,0.08) 3px,
+    rgba(0,0,0,0.08) 4px
+  );
+}
 
-        <!-- Bounding Box / HUD Canvas Overlay -->
-        <canvas id="hudCanvas" class="hud-canvas"></canvas>
+/* Subtle radial gradient at top-left to add depth */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 40% at 20% 0%, rgba(0,229,160,0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 90% 100%, rgba(59,130,246,0.04) 0%, transparent 70%);
+}
 
-        <!-- Corner brackets HUD decoration -->
-        <div class="hud-corner hud-tl"></div>
-        <div class="hud-corner hud-tr"></div>
-        <div class="hud-corner hud-bl"></div>
-        <div class="hud-corner hud-br"></div>
+/* ─── Header ──────────────────────────────────────── */
+.site-header {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  border-bottom: 1px solid var(--border);
+}
 
-        <!-- Top HUD bar -->
-        <div class="hud-topbar">
-          <span class="hud-label">REC</span>
-          <span class="hud-blink">●</span>
-          <span class="hud-separator">|</span>
-          <span class="hud-label">CAM-01</span>
-          <span class="hud-separator">|</span>
-          <span id="hudFPS" class="hud-label">— FPS</span>
-          <span class="hud-separator">|</span>
-          <span id="hudTimestamp" class="hud-label">--:--:--</span>
-        </div>
+.header-inner {
+  max-width: 1600px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  gap: 1rem;
+}
 
-        <!-- Bottom HUD status bar -->
-        <div class="hud-bottombar">
-          <div class="hud-scan-status" id="hudScanStatus">
-            <span class="scan-spinner"></span>
-            <span id="scanStatusText">SCANNING FRAME…</span>
-          </div>
-          <div class="hud-coords">
-            <span id="hudLat">LAT 18.5204°N</span>
-            <span class="hud-separator">|</span>
-            <span id="hudLng">LNG 73.8567°E</span>
-          </div>
-        </div>
+.logo-block {
+  display: flex; align-items: center; gap: 0.875rem;
+}
 
-        <!-- Detection Count badge on video -->
-        <div class="hud-detection-badge" id="hudDetectionBadge">
-          <span id="hudDetCount">0</span>
-          <span class="hud-det-label">DEFECTS</span>
-        </div>
+.logo-icon svg {
+  width: 36px; height: 36px;
+  animation: spin-slow 12s linear infinite;
+}
 
-      </div><!-- /media-container -->
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
 
-      <!-- Upload + controls -->
-      <div class="media-controls">
-        <label class="upload-btn" for="footageUpload">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M10 3v10M10 3l-3 3M10 3l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Upload Footage
-        </label>
-        <input type="file" id="footageUpload" accept="video/*,image/*,.csv" multiple class="sr-only" />
-        
-        <button class="control-btn" id="liveCamBtn">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <rect x="3" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-          Live Camera
-        </button>
+.site-title {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.title-cv {
+  color: var(--accent);
+}
 
-        <button class="control-btn" id="validateBtn">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M9 2a7 7 0 100 14A7 7 0 009 2zM15 15l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M6 9l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Validate Manually
-        </button>
+.site-subtitle {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
 
-        <button class="control-btn upload-btn" id="analyzeBtn">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M10 7v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          Start Analysis
-        </button>
+.header-right {
+  display: flex; align-items: center; gap: 1.25rem;
+}
 
-        <!-- Vehicle speed input (km/h) — used to adapt frame capture timing -->
-        <label class="control-btn control-btn--input" for="vehicleSpeedKmph" style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:12px;color:var(--text-muted);">Speed</span>
-          <input id="vehicleSpeedKmph" type="number" min="0" max="200" step="1" value="30" style="width:72px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;">
-          <span style="font-size:12px;color:var(--text-muted);">km/h</span>
-        </label>
+/* Status pill */
+.status-pill {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 99px;
+  border: 1px solid var(--border-accent);
+  background: var(--accent-dim);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  text-transform: uppercase;
+  transition: var(--transition);
+}
+.status-pill[data-mode="demo"] {
+  border-color: rgba(245,158,11,0.3);
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1.4s ease-in-out infinite;
+}
+.status-pill[data-mode="demo"] .status-dot { background: var(--amber); }
+@keyframes blink { 0%,100% { opacity:1 } 50% { opacity:0.2 } }
 
-        <!-- Road width input (metres) — calibration input; defaults to 3.5m -->
-        <label class="control-btn control-btn--input" for="roadWidthMetres" style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:12px;color:var(--text-muted);">Road Width</span>
-          <input id="roadWidthMetres" type="number" min="1" max="12" step="0.1" value="3.5" style="width:72px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;">
-          <span style="font-size:12px;color:var(--text-muted);">m</span>
-        </label>
+/* Demo toggle button */
+.toggle-btn {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  transition: color var(--transition);
+}
+.toggle-btn:hover { color: var(--text-primary); }
+.toggle-track {
+  width: 36px; height: 18px; border-radius: 9px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  position: relative; transition: background var(--transition);
+}
+.toggle-track.active { background: var(--accent-dim); border-color: var(--border-accent); }
+.toggle-thumb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--text-muted);
+  position: absolute; top: 2px; left: 2px;
+  transition: transform var(--transition), background var(--transition);
+}
+.toggle-thumb.active { transform: translateX(18px); background: var(--accent); }
 
-        <button class="control-btn control-btn--ghost" id="resetBtn">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M4 10a6 6 0 116 6H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M4 13V10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Reset
-        </button>
+/* Session clock */
+.session-time {
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+.session-label {
+  font-family: var(--font-mono); font-size: 0.5rem;
+  letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase;
+}
+.session-clock {
+  font-family: var(--font-mono); font-size: 0.875rem;
+  color: var(--accent); letter-spacing: 0.08em;
+}
 
-        <button class="control-btn control-btn--ghost" id="downloadReportBtn">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M4 16v1a2 2 0 002 2h8a2 2 0 002-2v-1M10 4v9M7 10l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Download Report
-        </button>
+/* Scan progress bar */
+.scan-progress-bar {
+  height: 2px; width: 100%;
+  background: var(--border);
+}
+.scan-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #00c4ff);
+  width: 0%;
+  transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
 
-        <div class="frame-counter">
-          FRAMES ANALYZED: <span id="frameCounter">0</span>
-        </div>
-      </div>
+/* ─── Dashboard Grid ──────────────────────────────── */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 65fr 35fr;
+  gap: 1rem;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+  position: relative; z-index: 2;
+  align-items: start;
+}
 
-      <!-- Z-Axis live graph (full width at bottom of left col) -->
-      <div class="roughness-graph-card">
-        <div class="rg-header">
-          <span class="rg-title">Z-AXIS ROUGHNESS WAVEFORM</span>
-          <span class="rg-unit">Accelerometer · m/s²</span>
-        </div>
-        <canvas id="roughnessGraph" class="roughness-graph"></canvas>
-      </div>
+/* ─── Media Section ───────────────────────────────── */
+.media-section {
+  display: flex; flex-direction: column; gap: 1rem;
+}
 
-      <!-- Move: Road Quality Score (moved from analytics panel to fill left column) -->
-      <div class="analytics-card card--quality">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span class="card-label">ROAD QUALITY SCORE</span>
-        </div>
-        <div class="card-body">
-          <div class="quality-ring-wrap">
-            <canvas id="qualityRing" width="120" height="120"></canvas>
-            <div class="quality-ring-inner">
-              <span class="quality-score" id="qualityScore">100</span>
-              <span class="quality-grade" id="qualityGrade">A+</span>
-            </div>
-          </div>
-          <div class="quality-legend">
-            <span class="ql-item ql-a">A — Excellent</span>
-            <span class="ql-item ql-b">B — Good</span>
-            <span class="ql-item ql-c">C — Fair</span>
-            <span class="ql-item ql-d">D — Poor</span>
-          </div>
-        </div>
-      </div>
+.media-container {
+  position: relative;
+  aspect-ratio: 16/9;
+  background: #000;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 1px rgba(0,229,160,0.05), 0 20px 60px rgba(0,0,0,0.5);
+}
 
-      <!-- Move: Detection Map (moved from analytics panel to fill left column) -->
-      <div class="analytics-card card--map" id="mapCard">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 2C8.686 2 6 4.686 6 8c0 5.25 6 14 6 14s6-8.75 6-14c0-3.314-2.686-6-6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-              <circle cx="12" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </span>
-          <span class="card-label">DETECTION MAP</span>
-          <span class="gps-status-label" id="gpsStatusLabel">GPS SIMULATED</span>
-        </div>
-        <div class="card-body map-card-body">
-          <canvas id="miniMapCanvas" width="400" height="200" class="mini-map-canvas"></canvas>
-        </div>
-      </div>
+/* Road background canvas — drawn by JS; sits behind video */
+.road-bg-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+}
 
-    </section><!-- /media-section -->
+.road-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: brightness(0.85) contrast(1.05);
+  z-index: 1;
+}
 
-    <!-- ── RIGHT COLUMN: Analytics Panel ─────────────── -->
-    <aside class="analytics-panel">
+/* HUD Canvas */
+.hud-canvas {
+  position: absolute; inset: 0;
+  z-index: 2;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
 
-      <!-- Potholes Counter -->
-      <div class="analytics-card card--potholes" id="cardPotholes">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <ellipse cx="12" cy="15" rx="7" ry="4" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5 15c0-3 3.134-7 7-7s7 4 7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M9 11l1.5 2M15 11l-1.5 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span class="card-label">POTHOLES DETECTED</span>
-          <span class="card-trend" id="potholeTrend">— —</span>
-      </div>
-      <div class="card-body">
-          <div class="counter-display">
-            <span class="counter-value" id="sessionTotal">00</span>
-            <div class="counter-sparkline" id="sparkline"></div>
-          </div>
-          <div class="counter-sub">
-            <span class="sub-item">CURRENT FRAME</span>
-            <span class="sub-value" id="potholeCount">0</span>
-          </div>
-        </div>
-      </div>
+/* Corner brackets */
+.hud-corner {
+  position: absolute;
+  width: 24px; height: 24px;
+  pointer-events: none;
+}
+.hud-corner::before, .hud-corner::after {
+  content: '';
+  position: absolute;
+  background: var(--accent);
+}
+.hud-corner::before { width: 2px; height: 100%; }
+.hud-corner::after  { height: 2px; width: 100%; }
 
-      <!-- Repair Cost -->
-      <div class="analytics-card card--cost">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M12 7v1m0 8v1M9.5 9.5A2.5 2.5 0 0112 8a2.5 2.5 0 012.5 2.5c0 1.5-2.5 2-2.5 3.5m0 0a2.5 2.5 0 002.5 2.5A2.5 2.5 0 0112 16a2.5 2.5 0 01-2.5-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span class="card-label">EST. REPAIR COST</span>
-          <span class="cost-per-unit">PWD Area-Based Rate</span>
-        </div>
-        <div class="card-body">
-          <div class="cost-display">
-            <span class="cost-currency">₹</span>
-            <span class="cost-value" id="repairCost">0</span>
-          </div>
-          <div class="cost-breakdown">
-            <div class="breakdown-bar">
-              <div class="breakdown-fill" id="costFill" style="width:0%"></div>
-            </div>
-            <span class="breakdown-label" id="costScale">₹0 — ₹50,000</span>
-          </div>
-        </div>
-      </div>
+.hud-tl { top: 12px; left: 12px; }
+.hud-tl::before { top:0; left:0; }
+.hud-tl::after  { top:0; left:0; }
 
-      <!-- Tire Abrasion Index -->
-      <div class="analytics-card card--abrasion">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/>
-              <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
-              <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <span class="card-label">TIRE ABRASION INDEX</span>
-        </div>
-        <div class="card-body">
-          <div class="badge-row">
-            <div class="abrasion-badge" id="abrasionBadge" data-level="low">
-              <span class="badge-icon" id="abrasionIcon">◎</span>
-              <span class="badge-text" id="abrasionText">LOW</span>
-            </div>
-            <div class="abrasion-meter">
-              <div class="meter-track">
-                <div class="meter-segment seg-low active" id="seg0"></div>
-                <div class="meter-segment seg-mod" id="seg1"></div>
-                <div class="meter-segment seg-crit" id="seg2"></div>
-              </div>
-              <div class="meter-labels">
-                <span>Low</span><span>Mod</span><span>Critical</span>
-              </div>
-            </div>
-          </div>
-          <p class="abrasion-detail" id="abrasionDetail">
-            Microplastic emission risk is minimal. Road surface is within acceptable tolerance.
-          </p>
-        </div>
-      </div>
+.hud-tr { top: 12px; right: 12px; }
+.hud-tr::before { top:0; right:0; }
+.hud-tr::after  { top:0; right:0; }
 
-      <!-- Skid Risk Level -->
-      <div class="analytics-card card--skid">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M3 17l4-8 4 4 4-6 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <circle cx="19" cy="17" r="1.5" fill="currentColor"/>
-              <circle cx="5" cy="17" r="1.5" fill="currentColor"/>
-            </svg>
-          </span>
-          <span class="card-label">SKID RISK LEVEL</span>
-        </div>
-        <div class="card-body">
-          <div class="skid-gauge-wrap">
-            <canvas id="skidGauge" class="skid-gauge" width="180" height="100"></canvas>
-            <div class="skid-badge-row">
-              <div class="skid-badge" id="skidBadge" data-level="safe">
-                <span id="skidText">SAFE</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+.hud-bl { bottom: 12px; left: 12px; }
+.hud-bl::before { bottom:0; left:0; }
+.hud-bl::after  { bottom:0; left:0; }
 
-      <!-- Z-Axis Roughness Live -->
-      <div class="analytics-card card--zaxis">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M3 12h3l3-6 3 12 3-6 3 3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span class="card-label">Z-AXIS ROUGHNESS (G-FORCE)</span>
-          <span class="live-indicator">LIVE</span>
-        </div>
-        <div class="card-body">
-          <div class="zaxis-display">
-            <div class="zaxis-value-wrap">
-              <span class="zaxis-sign" id="zAxisSign">+</span>
-              <span class="zaxis-value" id="zAxisValue">0.00</span>
-              <span class="zaxis-unit">G</span>
-            </div>
-            <div class="zaxis-bars" id="zAxisBars">
-              <!-- Generated by JS -->
-            </div>
-          </div>
-          <div class="zaxis-meta">
-            <div class="zaxis-stat">
-              <span class="zstat-label">PEAK</span>
-              <span class="zstat-val" id="zPeak">0.00G</span>
-            </div>
-            <div class="zaxis-stat">
-              <span class="zstat-label">AVG</span>
-              <span class="zstat-val" id="zAvg">0.00G</span>
-            </div>
-            <div class="zaxis-stat">
-              <span class="zstat-label">EVENTS</span>
-              <span class="zstat-val" id="zEvents">0</span>
-            </div>
-          </div>
-<div class="sensor-status" id="sensorStatus">
-            <span class="sensor-dot sensor-dot--warn"></span>
-            <span id="sensorStatusText">Awaiting sensor permission…</span>
-          </div>
-        </div>
-      </div>
+.hud-br { bottom: 12px; right: 12px; }
+.hud-br::before { bottom:0; right:0; }
+.hud-br::after  { bottom:0; right:0; }
 
-      <div class="analytics-card card--tire-wear">
-        <div class="card-header">
-          <span class="card-icon" style="background: var(--amber-dim); color: var(--amber);">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4"/>
-              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </span>
-          <span class="card-label">TIRE WEAR EMISSION (PREDICTIVE MODEL)</span>
-        </div>
-        <div class="card-body">
-          <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
-            <label class="control-btn control-btn--input" style="flex: 2; display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Vehicle</span>
-              <select id="twVehicleType" style="background: transparent; border: none; color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; outline: none; cursor: pointer; text-align: right;">
-                <option value="150" style="background: var(--bg-card);">2-Wheeler (150kg)</option>
-                <option value="1400" selected style="background: var(--bg-card);">4-Wheeler (1400kg)</option>
-                <option value="4500" style="background: var(--bg-card);">Heavy Duty (4500kg)</option>
-              </select>
-            </label>
-            <label class="control-btn control-btn--input" style="flex: 1; display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-size: 10px; color: var(--text-muted); text-transform: uppercase;">Passengers</span>
-              <input id="twPax" type="number" min="1" max="50" value="2" style="width: 40px; background: transparent; border: none; color: var(--text-primary); font-family: var(--font-mono); font-size: 14px; outline: none; text-align: right;">
-            </label>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-            <div>
-              <div id="twEmissionValue" style="font-family: var(--font-display); font-size: 3.2rem; color: var(--accent); line-height: 1; text-shadow: 0 0 15px var(--accent-glow); transition: all 0.3s; letter-spacing: 0.02em;">0.00</div>
-              <div style="font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); margin-top: 6px; letter-spacing: 0.08em;">ESTIMATED EMISSION (mg/km)</div>
-            </div>
-            <button class="upload-btn" id="downloadAbrasionReportBtn" style="background: var(--amber); color: #000; font-size: 0.65rem; padding: 0.45rem 0.8rem; box-shadow: 0 0 15px rgba(245,158,11,0.3); margin-bottom: 4px;">
-              Export TWP Report
-            </button>
-          </div>
-        </div>
-      </div>
+/* HUD top bar */
+.hud-topbar {
+  position: absolute; top: 12px; left: 44px; right: 44px;
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.12em; color: var(--accent);
+  text-shadow: 0 0 8px var(--accent-glow);
+  pointer-events: none;
+}
+.hud-label { opacity: 0.9; }
+.hud-separator { opacity: 0.3; }
+.hud-blink { animation: blink 0.8s ease-in-out infinite; color: #ef4444; }
 
-      <!-- (moved to left column) -->
+/* HUD bottom bar */
+.hud-bottombar {
+  position: absolute; bottom: 12px; left: 44px; right: 44px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.1em; color: var(--accent);
+  pointer-events: none;
+}
+.hud-scan-status {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: rgba(0,229,160,0.08);
+  border: 1px solid rgba(0,229,160,0.2);
+  border-radius: 4px; padding: 0.2rem 0.6rem;
+  text-shadow: 0 0 6px var(--accent-glow);
+}
+.scan-spinner {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border: 1.5px solid rgba(0,229,160,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-    </aside><!-- /analytics-panel -->
+.hud-coords { opacity: 0.6; text-shadow: 0 0 6px var(--accent-glow); }
 
-  </main>
+/* Detection badge */
+.hud-detection-badge {
+  position: absolute; top: 12px; right: 44px;
+  display: flex; flex-direction: column; align-items: center;
+  background: rgba(0,229,160,0.1);
+  border: 1px solid rgba(0,229,160,0.25);
+  border-radius: 4px; padding: 0.25rem 0.5rem;
+  font-family: var(--font-mono);
+  line-height: 1;
+  pointer-events: none;
+}
+#hudDetCount {
+  font-size: 1.4rem; font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent-glow);
+}
+.hud-det-label {
+  font-size: 0.45rem; letter-spacing: 0.15em;
+  color: var(--accent); opacity: 0.7;
+}
 
-  <!-- ─── Validation Dashboard ────────────────────────────────────── -->
+/* ─── Media Controls ──────────────────────────────── */
+.media-controls {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+}
 
-  <section class="validation-dashboard" id="validationDashboard" style="display: none;">
-    <div class="vd-header">
-      <div class="vd-title">
-        <h2>HUMAN-AI COLLABORATION: MANUAL AUDIT</h2>
-        <p>Review raw API frames and verify bounding boxes to calculate certified repair costs.</p>
-      </div>
-      <div class="vd-stats">
-        <div class="vd-stat-box">
-          <span class="vd-stat-label">VALIDATED POTHOLES</span>
-          <span class="vd-stat-value" id="valCount">0</span>
-        </div>
-        <div class="vd-stat-box">
-          <span class="vd-stat-label">CERTIFIED REPAIR COST</span>
-          <span class="vd-stat-value">₹<span id="valCost">0</span></span>
-        </div>
-        <button class="upload-btn" id="downloadManualReportBtn" style="background: var(--blue); color: #fff; align-self: center; margin-left: auto;">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width: 15px; height: 15px; margin-right: 6px;">
-            <path d="M4 16v1a2 2 0 002 2h8a2 2 0 002-2v-1M10 4v9M7 10l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Export Certified PDF
-        </button>
-      </div>
-    </div>
-    <div class="vd-grid" id="vdGrid">
-      </div>
-  </section>
+.upload-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1.1rem;
+  background: var(--accent); color: #000;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 0.7rem;
+  font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+  box-shadow: 0 0 0 0 var(--accent-glow);
+}
+.upload-btn svg { width: 14px; height: 14px; }
+.upload-btn:hover {
+  background: #00ffc0;
+  box-shadow: 0 0 20px var(--accent-glow);
+  transform: translateY(-1px);
+}
 
-  <!-- ─── FOOTER ────────────────────────────────────── -->
-  <footer class="site-footer">
-    <div class="footer-inner">
-      <span class="footer-copy">TreadGuard CV · Road Safety Intelligence Platform</span>
-      <span class="footer-build">BUILD 2025.06 · ROBOFLOW + DEVICEMOTION</span>
-      <div class="footer-lights">
-        <span class="fl fl--green" title="System OK"></span>
-        <span class="fl fl--amber" id="flSensor" title="Sensor"></span>
-        <span class="fl fl--blue" id="flApi" title="API"></span>
-      </div>
-    </div>
-  </footer>
+.control-btn {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-card); color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 0.7rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  transition: all var(--transition);
+}
+.control-btn svg { width: 13px; height: 13px; }
+.control-btn:hover { border-color: var(--border-accent); color: var(--accent); }
+.control-btn--ghost { background: transparent; }
 
-  <!-- Upload preview modal -->
-  <div class="modal-overlay" id="uploadModal" hidden>
-    <div class="modal-box">
-      <button class="modal-close" id="modalClose">✕</button>
-      <h2 class="modal-title">Footage Loaded</h2>
-      <p class="modal-desc" id="modalDesc">File ready for analysis.</p>
-      <button class="modal-confirm" id="modalConfirm">Begin Analysis</button>
-    </div>
-  </div>
+.frame-counter {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.12em; color: var(--text-muted);
+  text-transform: uppercase;
+}
+.frame-counter span { color: var(--accent); }
 
-  <script src="app.js"></script>
-</body>
-</html>
+/* ─── Roughness Graph Card ────────────────────────── */
+.roughness-graph-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  overflow: hidden;
+}
+.rg-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.5rem;
+}
+.rg-title {
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.14em; color: var(--text-secondary); text-transform: uppercase;
+}
+.rg-unit {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase;
+}
+.roughness-graph {
+  width: 100%; height: 72px; display: block;
+}
+
+/* ─── Analytics Panel ─────────────────────────────── */
+.analytics-panel {
+  display: flex; flex-direction: column; gap: 0.75rem;
+}
+
+/* ─── Analytics Cards ─────────────────────────────── */
+.analytics-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+.analytics-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.5;
+}
+.analytics-card:hover { border-color: rgba(255,255,255,0.1); }
+
+.card-header {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.card-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  background: var(--accent-dim);
+  border-radius: 6px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.card-icon svg { width: 15px; height: 15px; }
+.card-label {
+  font-family: var(--font-mono); font-size: 0.58rem;
+  letter-spacing: 0.14em; color: var(--text-secondary); text-transform: uppercase;
+  flex: 1;
+}
+.card-trend {
+  font-family: var(--font-mono); font-size: 0.6rem;
+  color: var(--text-muted); letter-spacing: 0.08em;
+}
+
+/* ── Pothole Counter ── */
+.counter-display {
+  display: flex; align-items: baseline; gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.counter-value {
+  font-family: var(--font-display);
+  font-size: 4.5rem; line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(0,229,160,0.15);
+  transition: color 0.3s, text-shadow 0.3s;
+  letter-spacing: 0.02em;
+  min-width: 3ch;
+}
+.counter-sparkline {
+  flex: 1; height: 32px;
+  display: flex; align-items: flex-end; gap: 2px;
+}
+.sparkline-bar {
+  flex: 1;
+  background: var(--accent-dim);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: height 0.4s cubic-bezier(0.4,0,0.2,1), background 0.3s;
+}
+.sparkline-bar.active { background: var(--accent); }
+
+.counter-sub {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 0.6rem;
+  letter-spacing: 0.1em; color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+  text-transform: uppercase;
+}
+.sub-value { color: var(--text-secondary); }
+
+/* ── Repair Cost ── */
+.cost-per-unit {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.08em; color: var(--text-muted);
+  margin-left: auto;
+}
+.cost-display {
+  display: flex; align-items: baseline; gap: 0.2rem;
+  margin-bottom: 0.75rem;
+}
+.cost-currency {
+  font-family: var(--font-display); font-size: 1.8rem;
+  color: var(--amber); opacity: 0.7;
+}
+.cost-value {
+  font-family: var(--font-display); font-size: 2.8rem; line-height: 1;
+  color: var(--amber);
+  text-shadow: 0 0 20px rgba(245,158,11,0.4);
+  transition: all 0.4s;
+  letter-spacing: 0.02em;
+}
+.cost-breakdown { margin-top: 0.25rem; }
+.breakdown-bar {
+  height: 4px; width: 100%;
+  background: var(--border); border-radius: 2px;
+  overflow: hidden; margin-bottom: 0.35rem;
+}
+.breakdown-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), #fbbf24);
+  border-radius: 2px;
+  transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+  box-shadow: 0 0 6px rgba(245,158,11,0.4);
+}
+.breakdown-label {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.08em; color: var(--text-muted);
+}
+
+/* ── Abrasion Badge ── */
+.badge-row {
+  display: flex; align-items: center; gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.abrasion-badge {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.875rem;
+  border-radius: 99px;
+  border: 1px solid currentColor;
+  font-family: var(--font-mono); font-size: 0.75rem;
+  font-weight: 700; letter-spacing: 0.12em;
+  transition: all 0.4s;
+}
+.abrasion-badge[data-level="low"]      { color: var(--accent);  background: var(--accent-dim); }
+.abrasion-badge[data-level="moderate"] { color: var(--amber);   background: var(--amber-dim); }
+.abrasion-badge[data-level="critical"] { color: var(--red);     background: var(--red-dim); animation: pulse-red 1s ease-in-out infinite; }
+
+@keyframes pulse-red {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+}
+
+.abrasion-meter { flex: 1; }
+.meter-track {
+  display: flex; gap: 3px;
+  height: 6px; margin-bottom: 4px;
+}
+.meter-segment {
+  flex: 1; border-radius: 3px;
+  background: var(--border);
+  transition: background 0.4s;
+}
+.meter-segment.active.seg-low  { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+.meter-segment.active.seg-mod  { background: var(--amber);  box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+.meter-segment.active.seg-crit { background: var(--red);    box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+.meter-labels {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 0.5rem;
+  letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase;
+}
+
+.abrasion-detail {
+  font-size: 0.72rem; color: var(--text-secondary);
+  line-height: 1.5; font-style: italic;
+  border-top: 1px solid var(--border); padding-top: 0.6rem;
+}
+
+/* ── Skid Badge ── */
+.skid-gauge-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+}
+.skid-gauge { display: block; }
+.skid-badge {
+  display: inline-flex; align-items: center;
+  padding: 0.3rem 1.2rem;
+  border-radius: 99px; border: 1px solid currentColor;
+  font-family: var(--font-mono); font-size: 0.75rem;
+  font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  transition: all 0.4s;
+}
+.skid-badge[data-level="safe"]      { color: var(--accent); background: var(--accent-dim); }
+.skid-badge[data-level="caution"]   { color: var(--amber);  background: var(--amber-dim); }
+.skid-badge[data-level="hazardous"] { color: var(--red);    background: var(--red-dim); animation: pulse-red 1s ease-in-out infinite; }
+
+/* ── Z-Axis ── */
+.live-indicator {
+  font-family: var(--font-mono); font-size: 0.5rem; letter-spacing: 0.15em;
+  color: var(--red); background: var(--red-dim);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 4px; padding: 0.1rem 0.35rem;
+  animation: blink 1.2s ease-in-out infinite;
+  margin-left: auto;
+}
+
+.zaxis-display {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.zaxis-value-wrap {
+  display: flex; align-items: baseline; gap: 0.1rem;
+}
+.zaxis-sign {
+  font-family: var(--font-display); font-size: 1.5rem;
+  color: var(--accent); opacity: 0.6; line-height: 1;
+}
+.zaxis-value {
+  font-family: var(--font-display); font-size: 3.2rem; line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 20px var(--accent-glow);
+  transition: color 0.2s;
+  min-width: 3ch;
+  letter-spacing: 0.02em;
+}
+.zaxis-unit {
+  font-family: var(--font-mono); font-size: 0.75rem;
+  color: var(--text-secondary); letter-spacing: 0.1em;
+  align-self: flex-end; margin-bottom: 0.25rem;
+}
+.zaxis-bars {
+  flex: 1;
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 48px;
+}
+.zbar {
+  flex: 1; min-height: 2px; border-radius: 2px 2px 0 0;
+  background: var(--accent-dim);
+  transition: height 0.15s, background 0.3s;
+}
+.zbar.spike { background: var(--accent); }
+.zbar.high-spike { background: var(--amber); }
+.zbar.critical-spike { background: var(--red); }
+
+.zaxis-meta {
+  display: grid; grid-template-columns: repeat(3,1fr); gap: 0.5rem;
+  border-top: 1px solid var(--border); padding-top: 0.5rem;
+}
+.zaxis-stat { display: flex; flex-direction: column; gap: 2px; }
+.zstat-label {
+  font-family: var(--font-mono); font-size: 0.5rem;
+  letter-spacing: 0.12em; color: var(--text-muted); text-transform: uppercase;
+}
+.zstat-val {
+  font-family: var(--font-mono); font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.sensor-status {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.58rem;
+  letter-spacing: 0.08em; color: var(--text-muted);
+}
+.sensor-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.sensor-dot--warn   { background: var(--amber); animation: blink 1.4s infinite; }
+.sensor-dot--active { background: var(--accent); animation: blink 0.8s infinite; }
+.sensor-dot--error  { background: var(--red); }
+
+/* ── Quality Ring Card ── */
+.quality-ring-wrap {
+  display: flex; align-items: center; gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.quality-ring-inner {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0px;
+}
+.quality-score {
+  font-family: var(--font-display); font-size: 2.5rem; line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 20px var(--accent-glow);
+  transition: all 0.6s;
+}
+.quality-grade {
+  font-family: var(--font-mono); font-size: 0.7rem;
+  letter-spacing: 0.1em; color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.quality-legend {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.75rem;
+  border-top: 1px solid var(--border); padding-top: 0.5rem;
+}
+.ql-item {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.2rem 0.5rem; border-radius: 3px;
+}
+.ql-a { color: var(--accent);  background: var(--accent-dim); }
+.ql-b { color: #4ade80; background: rgba(74,222,128,0.1); }
+.ql-c { color: var(--amber);   background: var(--amber-dim); }
+.ql-d { color: var(--red);     background: var(--red-dim); }
+
+/* ─── Footer ──────────────────────────────────────── */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--bg-glass);
+  backdrop-filter: blur(10px);
+  position: relative; z-index: 2;
+  margin-top: 0.5rem;
+}
+.footer-inner {
+  max-width: 1600px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 1.5rem; gap: 1rem;
+}
+.footer-copy {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.1em; color: var(--text-muted); text-transform: uppercase;
+}
+.footer-build {
+  font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.12em; color: var(--text-muted); text-transform: uppercase;
+}
+.footer-lights { display: flex; gap: 0.4rem; }
+.fl {
+  width: 8px; height: 8px; border-radius: 50%;
+  animation: blink 2s infinite;
+}
+.fl--green { background: var(--accent); }
+.fl--amber { background: var(--amber); animation-delay: 0.3s; }
+.fl--blue  { background: var(--blue);  animation-delay: 0.6s; }
+
+/* ─── Upload Modal ────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(8,12,16,0.85);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay[hidden] { display: none; }
+
+.modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  max-width: 400px; width: 90%;
+  position: relative;
+  box-shadow: 0 0 60px rgba(0,229,160,0.15);
+  animation: modal-in 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+@keyframes modal-in {
+  from { opacity:0; transform: scale(0.95) translateY(10px); }
+  to   { opacity:1; transform: scale(1)    translateY(0); }
+}
+.modal-close {
+  position: absolute; top: 0.75rem; right: 0.75rem;
+  color: var(--text-muted); font-size: 0.875rem;
+  transition: color var(--transition);
+}
+.modal-close:hover { color: var(--text-primary); }
+.modal-title {
+  font-family: var(--font-display); font-size: 1.8rem; letter-spacing: 0.04em;
+  color: var(--accent); margin-bottom: 0.5rem;
+}
+.modal-desc {
+  font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.25rem; line-height: 1.5;
+}
+.modal-confirm {
+  width: 100%; padding: 0.6rem;
+  background: var(--accent); color: #000;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 0.75rem;
+  font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  transition: background var(--transition), box-shadow var(--transition);
+}
+.modal-confirm:hover {
+  background: #00ffc0;
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+/* ─── Responsive ──────────────────────────────────── */
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .analytics-panel {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .header-inner { flex-wrap: wrap; gap: 0.5rem; }
+  .site-title { font-size: 1.35rem; }
+  .analytics-panel { grid-template-columns: 1fr; }
+  .counter-value { font-size: 3rem; }
+  .session-time, .toggle-btn { display: none; }
+  .dashboard-grid { padding: 0.75rem; }
+}
+
+/* ─── Utility ─────────────────────────────────────── */
+.accent-text { color: var(--accent); }
+.highlight { background: var(--accent-dim); border-radius: 2px; padding: 0 2px; }
+
+/* Number counter animation */
+@keyframes count-up {
+  from { transform: translateY(4px); opacity: 0.3; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+.count-animate {
+  animation: count-up 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Data flash effect */
+@keyframes data-flash {
+  0%,100% { background: var(--bg-card); }
+  30%      { background: var(--accent-dim); }
+}
+.card-flash { animation: data-flash 0.4s ease-out; }
+
+
+/* ─────────────────────────────────────────────────
+   GPS DETECTION MINI-MAP CARD
+───────────────────────────────────────────────── */
+
+/* GPS status badge in card header */
+.gps-status-label {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.13em;
+  color: var(--amber);         /* amber = simulated, overridden to accent when live */
+  text-transform: uppercase;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.85;
+}
+
+/* Map card body — zero padding so canvas fills edge-to-edge */
+.map-card-body {
+  padding: 0;
+  margin-top: 0.5rem;
+}
+
+/* The mini-map canvas */
+.mini-map-canvas {
+  display: block;
+  width: 100%;          /* stretch to card width */
+  height: 200px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: #080c10;
+  /* Subtle inner border to separate from card */
+  box-shadow: inset 0 0 0 1px rgba(0,229,160,0.07);
+}
+
+/* Hover accent on the map card */
+#mapCard:hover {
+  border-color: rgba(0,229,160,0.15);
+  box-shadow: 0 0 0 1px rgba(0,229,160,0.06);
+}
+
+/* ─────────────────────────────────────────────────
+   MANUAL VALIDATION DASHBOARD
+───────────────────────────────────────────────── */
+.validation-dashboard {
+  max-width: 1600px; margin: 1.5rem auto; padding: 1.5rem;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); position: relative; z-index: 2;
+}
+.vd-header {
+  display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;
+  margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem;
+}
+.vd-title h2 { 
+  font-family: var(--font-display); color: var(--accent); 
+  font-size: 2.2rem; letter-spacing: 0.05em; line-height: 1;
+}
+.vd-title p { 
+  font-family: var(--font-mono); color: var(--text-secondary); 
+  font-size: 0.75rem; margin-top: 0.5rem; text-transform: uppercase;
+}
+.vd-stats { display: flex; gap: 1rem; }
+.vd-stat-box {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  padding: 0.75rem 1.25rem; border-radius: var(--radius-md);
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+.vd-stat-label { 
+  font-family: var(--font-mono); font-size: 0.6rem; 
+  color: var(--text-muted); letter-spacing: 0.1em; margin-bottom: 0.2rem;
+}
+.vd-stat-value { font-family: var(--font-display); font-size: 2.2rem; color: var(--amber); line-height: 1; }
+
+.vd-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem;
+}
+.vd-frame-wrapper {
+  position: relative; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: #000;
+}
+.vd-frame-img { width: 100%; display: block; border-radius: var(--radius-md); }
+
+.vd-bbox {
+  position: absolute; border: 2px dashed var(--amber); 
+  box-shadow: inset 0 0 8px rgba(245,158,11,0.2);
+  pointer-events: none; 
+}
+.vd-actions {
+  position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; pointer-events: auto; z-index: 10;
+}
+.vd-btn {
+  width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.8); transition: transform 0.2s;
+}
+.vd-btn:hover { transform: scale(1.15); }
+.vd-btn-tick { background: var(--accent); color: #000; }
+.vd-btn-cross { background: var(--red); color: #fff; }
+
+.vd-bbox.validated { border-style: solid; border-color: var(--accent); background: rgba(0,229,160,0.1); }
+.vd-bbox.rejected { border-color: var(--text-muted); opacity: 0.3; }
+.vd-actions.hidden { display: none; }
