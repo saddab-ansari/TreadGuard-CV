@@ -148,6 +148,14 @@
           Live Camera
         </button>
 
+        <button class="control-btn" id="validateBtn">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M9 2a7 7 0 100 14A7 7 0 009 2zM15 15l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M6 9l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Validate Manually
+        </button>
+
         <button class="control-btn" id="analyzeBtn">
           <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/>
@@ -155,6 +163,20 @@
           </svg>
           Analyze Frame
         </button>
+
+        <!-- Vehicle speed input (km/h) — used to adapt frame capture timing -->
+        <label class="control-btn control-btn--input" for="vehicleSpeedKmph" style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;color:var(--text-muted);">Speed</span>
+          <input id="vehicleSpeedKmph" type="number" min="0" max="200" step="1" value="30" style="width:72px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;">
+          <span style="font-size:12px;color:var(--text-muted);">km/h</span>
+        </label>
+
+        <!-- Road width input (metres) — calibration input; defaults to 3.5m -->
+        <label class="control-btn control-btn--input" for="roadWidthMetres" style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;color:var(--text-muted);">Road Width</span>
+          <input id="roadWidthMetres" type="number" min="1" max="12" step="0.1" value="3.5" style="width:72px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;">
+          <span style="font-size:12px;color:var(--text-muted);">m</span>
+        </label>
 
         <button class="control-btn control-btn--ghost" id="resetBtn">
           <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -183,6 +205,50 @@
           <span class="rg-unit">Accelerometer · m/s²</span>
         </div>
         <canvas id="roughnessGraph" class="roughness-graph"></canvas>
+      </div>
+
+      <!-- Move: Road Quality Score (moved from analytics panel to fill left column) -->
+      <div class="analytics-card card--quality">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="card-label">ROAD QUALITY SCORE</span>
+        </div>
+        <div class="card-body">
+          <div class="quality-ring-wrap">
+            <canvas id="qualityRing" width="120" height="120"></canvas>
+            <div class="quality-ring-inner">
+              <span class="quality-score" id="qualityScore">100</span>
+              <span class="quality-grade" id="qualityGrade">A+</span>
+            </div>
+          </div>
+          <div class="quality-legend">
+            <span class="ql-item ql-a">A — Excellent</span>
+            <span class="ql-item ql-b">B — Good</span>
+            <span class="ql-item ql-c">C — Fair</span>
+            <span class="ql-item ql-d">D — Poor</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Move: Detection Map (moved from analytics panel to fill left column) -->
+      <div class="analytics-card card--map" id="mapCard">
+        <div class="card-header">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 2C8.686 2 6 4.686 6 8c0 5.25 6 14 6 14s6-8.75 6-14c0-3.314-2.686-6-6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <circle cx="12" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </span>
+          <span class="card-label">DETECTION MAP</span>
+          <span class="gps-status-label" id="gpsStatusLabel">GPS SIMULATED</span>
+        </div>
+        <div class="card-body map-card-body">
+          <canvas id="miniMapCanvas" width="400" height="200" class="mini-map-canvas"></canvas>
+        </div>
       </div>
 
     </section><!-- /media-section -->
@@ -343,53 +409,40 @@
         </div>
       </div>
 
-      <!-- Road Quality Score -->
-      <div class="analytics-card card--quality">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17 5.8 21.3l2.4-7.4L2 9.4h7.6L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span class="card-label">ROAD QUALITY SCORE</span>
-        </div>
-        <div class="card-body">
-          <div class="quality-ring-wrap">
-            <canvas id="qualityRing" width="120" height="120"></canvas>
-            <div class="quality-ring-inner">
-              <span class="quality-score" id="qualityScore">100</span>
-              <span class="quality-grade" id="qualityGrade">A+</span>
-            </div>
-          </div>
-          <div class="quality-legend">
-            <span class="ql-item ql-a">A — Excellent</span>
-            <span class="ql-item ql-b">B — Good</span>
-            <span class="ql-item ql-c">C — Fair</span>
-            <span class="ql-item ql-d">D — Poor</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- GPS Detection Mini-Map -->
-      <div class="analytics-card card--map" id="mapCard">
-        <div class="card-header">
-          <span class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M12 2C8.686 2 6 4.686 6 8c0 5.25 6 14 6 14s6-8.75 6-14c0-3.314-2.686-6-6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-              <circle cx="12" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </span>
-          <span class="card-label">DETECTION MAP</span>
-          <span class="gps-status-label" id="gpsStatusLabel">GPS SIMULATED</span>
-        </div>
-        <div class="card-body map-card-body">
-          <canvas id="miniMapCanvas" width="400" height="200" class="mini-map-canvas"></canvas>
-        </div>
-      </div>
+      <!-- (moved to left column) -->
 
     </aside><!-- /analytics-panel -->
 
   </main>
+
+  <!-- ─── Validation Dashboard ────────────────────────────────────── -->
+
+  <section class="validation-dashboard" id="validationDashboard" style="display: none;">
+    <div class="vd-header">
+      <div class="vd-title">
+        <h2>HUMAN-AI COLLABORATION: MANUAL AUDIT</h2>
+        <p>Review raw API frames and verify bounding boxes to calculate certified repair costs.</p>
+      </div>
+      <div class="vd-stats">
+        <div class="vd-stat-box">
+          <span class="vd-stat-label">VALIDATED POTHOLES</span>
+          <span class="vd-stat-value" id="valCount">0</span>
+        </div>
+        <div class="vd-stat-box">
+          <span class="vd-stat-label">CERTIFIED REPAIR COST</span>
+          <span class="vd-stat-value">₹<span id="valCost">0</span></span>
+        </div>
+        <button class="upload-btn" id="downloadManualReportBtn" style="background: var(--blue); color: #fff; align-self: center; margin-left: auto;">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="width: 15px; height: 15px; margin-right: 6px;">
+            <path d="M4 16v1a2 2 0 002 2h8a2 2 0 002-2v-1M10 4v9M7 10l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Export Certified PDF
+        </button>
+      </div>
+    </div>
+    <div class="vd-grid" id="vdGrid">
+      </div>
+  </section>
 
   <!-- ─── FOOTER ────────────────────────────────────── -->
   <footer class="site-footer">
