@@ -103,12 +103,38 @@ const State = {
   scanProgress: 0,
   rollingCounts: [],        // Last 5 frame counts for smoothed skid/quality
   rollingAreaSeverity: [],  // Last 5 frame area-severity scores (replaces count for scoring)
+  // NEW: Cumulative trackers for the overall PDF report
+  cumulativeAreaSeverity: 0, 
+  totalFramesWithSeverity: 0,
+  severityHistory: [], // Stores every frame's severity for the report graph
   lastAnalyzedVideoTime: -1, // video.currentTime at last API call — prevents duplicate frames
 
   // ── GPS & Detection Log ──────────────────────────────────────────────────
   gps: { lat: 12.9716, lng: 77.5946, simulated: true }, // Bangalore fallback until real GPS arrives
   detectionLog: [],   // { timestamp, lat, lng, count, repairCost } — capped at 50 entries
+  
+  // ── Manual Validation ────────────────────────────────────────────────────
+  validationFrames: [],
+  validatedPotholesCount: 0,
+  validatedRepairCost: 0,
 };
+
+function captureCurrentFrame() {
+  const video = document.getElementById('roadVideo');
+  const offscreen = document.createElement('canvas');
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 360;
+  offscreen.width = w;
+  offscreen.height = h;
+  const ctx = offscreen.getContext('2d');
+  ctx.drawImage(video, 0, 0, w, h);
+  
+  return {
+    base64: offscreen.toDataURL('image/jpeg', 0.8).split(',')[1],
+    width: w,
+    height: h
+  };
+}
 
 /* ─────────────────────────────────────────────────
    3. API INTEGRATION — Roboflow
@@ -119,29 +145,14 @@ const State = {
  * and sends it to the Roboflow inference API.
  * Returns the parsed JSON response or throws on failure.
  */
+
 async function analyzeFrame() {
-  const video = document.getElementById('roadVideo');
+  const frameObj = captureCurrentFrame();
 
-  // 1. Capture frame to canvas
-  const offscreen = document.createElement('canvas');
-  offscreen.width  = video.videoWidth  || 640;
-  offscreen.height = video.videoHeight || 360;
-  const ctx = offscreen.getContext('2d');
-  
-  // Draw the video
-  ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
-
-  // Convert to Base64 JPEG
-  const base64Image = offscreen.toDataURL('image/jpeg', 0.8).split(',')[1];
-
-  // 2. Roboflow WORKFLOW REST API Call
-  // Spec: POST /infer/workflows/{workspace}/{workflow_id}
-  // POST to our local proxy server — it forwards to Roboflow server-side
-  // (direct browser → serverless.roboflow.com is blocked by CORS)
   const response = await fetch(CONFIG.ROBOFLOW_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: base64Image })
+    body: JSON.stringify({ image: frameObj.base64 })
   });
 
   if (!response.ok) {
@@ -149,7 +160,7 @@ async function analyzeFrame() {
   }
 
   const data = await response.json();
-  return data;
+  return { data, frameObj };
 }
 
 /**
@@ -173,7 +184,11 @@ async function runAnalysis() {
 
   try {
     if (!State.isDemoMode) {
-      const data = await analyzeFrame();
+      const result = await analyzeFrame();
+      const data = result.data;
+      const base64Image = result.frameObj.base64;
+      const imgW = result.frameObj.width;
+      const imgH = result.frameObj.height;
 
       // ─── detect-count-and-visualize workflow actual response shape ──────────
       // { outputs: [{ count_objects: N, output_image: { type:'base64', value:'...' } }] }
@@ -236,7 +251,7 @@ async function runAnalysis() {
 
       console.log(`[TreadGuard] ✓ Final count=${count}, boxes=${predictions.length}`);
 
-      processDetectionData(count, predictions);
+      processDetectionData(count, predictions, base64Image, imgW, imgH);
       State.apiConnected = true;
       State.framesAnalyzed++;
       updateFooterLights(true);
@@ -280,8 +295,9 @@ function injectDummyData() {
     class: 'pothole',
     id: i,
   }));
-
-  processDetectionData(fakeDetections.length, fakeDetections);
+  
+  const frameObj = captureCurrentFrame();
+  processDetectionData(fakeDetections.length, fakeDetections, frameObj.base64, frameObj.width, frameObj.height);
   State.framesAnalyzed++;
 }
 
@@ -310,9 +326,9 @@ function stopDemoMode() {
  * Central function: receives count + detections,
  * updates all derived state, then refreshes every widget.
  */
-function processDetectionData(count, detections) {
-  // 1. Bulletproof Confidence Filter
-// 1. Bulletproof Confidence & Size Filter
+
+function processDetectionData(count, detections, base64Image = null, imgW = 640, imgH = 360) {
+  // 1. Bulletproof Confidence & Size Filter
   const filtered = detections.filter(d => {
     const conf = d.confidence ?? 1;
     const normalizedConf = conf > 1 ? conf / 100 : conf;
@@ -325,18 +341,35 @@ function processDetectionData(count, detections) {
     // Strict threshold: > 65% confidence AND box must be a realistic size
     return normalizedConf >= 0.65 && !isTooWide && !isTooTall; 
   });
+
+  // NEW: Save frame for human validation (capped at 30 to save RAM)
+  if (filtered.length > 0 && base64Image) {
+    State.validationFrames.push({
+      id: Date.now() + Math.random(),
+      image: base64Image,
+      width: imgW,
+      height: imgH,
+      predictions: JSON.parse(JSON.stringify(filtered)) // Deep copy
+    });
+    if (State.validationFrames.length > 30) State.validationFrames.shift();
+  }
+
   const currentVisibleCount = filtered.length;
 
   // 2. The Tripwire Accumulator 
-  // (Assuming model space is 360px high. Bottom 30% is y > 250)
+// 2. The Dynamic Physics Tripwire (with Cooldown)
+  // Expands the zone to the entire bottom half (y > 180) so fast potholes aren't skipped.
+  // Uses a 1200ms cooldown to prevent double-counting the same pothole across frames.
   let newPotholesCrossedLine = 0;
-  
-  filtered.forEach(det => {
-    // If the pothole's Y coordinate is at the bottom of the screen
-    if (det.y > 250 && det.y < 300) {
-      newPotholesCrossedLine++;
+  const now = Date.now();
+
+  if (now - (State.lastTripwireTime || 0) > 1200) {
+    const potholesInZone = filtered.filter(det => det.y > 180);
+    if (potholesInZone.length > 0) {
+      newPotholesCrossedLine = potholesInZone.length;
+      State.lastTripwireTime = now;
     }
-  });
+  }
 
   // 3. Update the global state
   const prev = State.potholeCount;
@@ -366,26 +399,33 @@ function processDetectionData(count, detections) {
     : 0;
 
   // 5b. Area-severity score for THIS frame
-  //     = total pothole area (m²) × 20
-  //     Rationale: one L-tier pothole (0.56 m²) → severity 11.2 ≈ near-critical
-  //                three S-tier potholes (0.05 m² each) → severity 3.0 → low
-  //     This means a single massive pothole hurts scores far more than many tiny ones.
   const frameAreaSqM = filtered.reduce((sum, d) => sum + (d._metrics?.areaSqM ?? 0), 0);
   const frameAreaSeverity = frameAreaSqM * 20;
 
-  State.rollingAreaSeverity.push(frameAreaSeverity);
-  if (State.rollingAreaSeverity.length > 5) State.rollingAreaSeverity.shift();
-  const rollingSeverity = State.rollingAreaSeverity.reduce((a, b) => a + b, 0)
-                        / State.rollingAreaSeverity.length;
+  // Track every frame for the PDF timeline graph
+  State.severityHistory.push(frameAreaSeverity);
 
-  // 6. Log detection with current GPS for mini-map
-  if (currentVisibleCount > 0) {
+  // A. REAL-TIME DASHBOARD MATH (Fast 3-Frame Rolling Average)
+  State.rollingAreaSeverity.push(frameAreaSeverity);
+  if (State.rollingAreaSeverity.length > 3) State.rollingAreaSeverity.shift(); // Tightened to 3 frames
+  const rollingSeverity = State.rollingAreaSeverity.reduce((a, b) => a + b, 0) / State.rollingAreaSeverity.length;
+  
+  // B. OVERALL SESSION MATH (Cumulative for PDF Report)
+  State.cumulativeAreaSeverity += frameAreaSeverity;
+  State.totalFramesWithSeverity++;
+
+  // 🛑 THE GHOSTING FIX (For the dashboard UI only)
+  const displaySeverity = currentVisibleCount === 0 ? 0 : rollingSeverity;
+
+// 6. Log detection with current GPS for mini-map AND Report Table
+  // ONLY log if the pothole officially crossed the tripwire and was billed!
+  if (newPotholesCrossedLine > 0) {
     State.detectionLog.push({
       timestamp:  Date.now(),
       lat:        State.gps.lat,
       lng:        State.gps.lng,
-      count:      currentVisibleCount,
-      repairCost: Math.round(frameCost),
+      count:      newPotholesCrossedLine,
+      repairCost: Math.round(frameCost * (newPotholesCrossedLine / Math.max(1, filtered.length))),
     });
     if (State.detectionLog.length > 50) State.detectionLog.shift();
   }
@@ -1417,7 +1457,7 @@ function initUploadHandler() {
 ───────────────────────────────────────────────── */
 
 /* ─────────────────────────────────────────────────
-   REPORT GENERATOR
+   REPORT GENERATOR (Cumulative Overall Version)
 ───────────────────────────────────────────────── */
 function generateReport() {
   const now = new Date().toLocaleString('en-IN');
@@ -1426,12 +1466,25 @@ function generateReport() {
   const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
   const s = String(elapsed % 60).padStart(2, '0');
   
-  const qualityScore = document.getElementById('qualityScore').textContent;
-  const qualityGrade = document.getElementById('qualityGrade').textContent;
-  const abrasionLevel = document.getElementById('abrasionText').textContent;
-  
-  const topEvents = [...State.detectionLog].sort((a, b) => b.repairCost - a.repairCost).slice(0, 5);
+  // 1. Calculate OVERALL Route Scores (ignoring real-time dashboard state)
+  const overallSeverity = State.totalFramesWithSeverity > 0 
+    ? (State.cumulativeAreaSeverity / State.totalFramesWithSeverity) : 0;
     
+  const overallScore = Math.max(0, Math.round(100 - overallSeverity * 7));
+  
+  let overallGrade = 'F';
+  if (overallScore >= 90) overallGrade = 'A+';
+  else if (overallScore >= 75) overallGrade = 'A';
+  else if (overallScore >= 60) overallGrade = 'B';
+  else if (overallScore >= 40) overallGrade = 'C';
+  else if (overallScore >= 20) overallGrade = 'D';
+
+  let overallAbrasion = 'LOW';
+  if (overallSeverity > CONFIG.ABRASION_CRITICAL_THRESHOLD) overallAbrasion = 'CRITICAL';
+  else if (overallSeverity > CONFIG.ABRASION_MODERATE_THRESHOLD) overallAbrasion = 'MODERATE';
+  
+  // 2. Generate Top Events Table
+  const topEvents = [...State.detectionLog].sort((a, b) => b.repairCost - a.repairCost).slice(0, 5);
   let tableHtml = '';
   if (topEvents.length > 0) {
     tableHtml = `
@@ -1451,6 +1504,25 @@ function generateReport() {
     tableHtml = '<p>No defect events logged during this session.</p>';
   }
 
+  // 3. Generate Timeline Graph (Sub-sampled for clean rendering)
+  const maxBars = 150; // Keep the graph from getting too squished on long drives
+  const step = Math.max(1, Math.floor(State.severityHistory.length / maxBars));
+  const sampledHistory = State.severityHistory.filter((_, i) => i % step === 0);
+  const maxSev = Math.max(...sampledHistory, 15); // Baseline scale
+  
+  const graphHtml = `
+    <h3 style="margin-top: 30px;">Route Severity Timeline</h3>
+    <div style="display: flex; align-items: flex-end; height: 120px; gap: 2px; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-bottom: 30px;">
+      ${sampledHistory.map(sev => {
+        const heightPct = Math.max(2, Math.min(100, (sev / maxSev) * 100)); // Minimum 2% height for flat roads
+        const color = sev > CONFIG.ABRASION_CRITICAL_THRESHOLD ? '#ef4444' : 
+                     (sev > CONFIG.ABRASION_MODERATE_THRESHOLD ? '#f59e0b' : '#00e5a0');
+        return `<div style="flex: 1; background-color: ${color}; height: ${heightPct}%; border-radius: 2px 2px 0 0;"></div>`;
+      }).join('')}
+    </div>
+  `;
+
+  // 4. Build the HTML Document
   const html = `
     <!DOCTYPE html>
     <html>
@@ -1476,132 +1548,250 @@ function generateReport() {
       <div class="grid">
         <div class="metric"><div class="metric-label">Total Potholes Detected</div><div class="metric-value">${State.sessionTotal}</div></div>
         <div class="metric"><div class="metric-label">Est. Repair Cost</div><div class="metric-value">₹${Math.round(State.totalRepairCost).toLocaleString('en-IN')}</div></div>
-        <div class="metric"><div class="metric-label">Road Quality</div><div class="metric-value">${qualityScore} (Grade ${qualityGrade})</div></div>
-        <div class="metric"><div class="metric-label">Tire Abrasion Index</div><div class="metric-value">${abrasionLevel}</div></div>
+        <div class="metric"><div class="metric-label">Overall Road Quality</div><div class="metric-value">${overallScore} (Grade ${overallGrade})</div></div>
+        <div class="metric"><div class="metric-label">Overall Abrasion Index</div><div class="metric-value">${overallAbrasion}</div></div>
         <div class="metric"><div class="metric-label">Z-Axis Peak G-Force</div><div class="metric-value">${Math.abs(State.zAxis.peak).toFixed(2)}G</div></div>
         <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
       </div>
+      
+      ${graphHtml}
       ${tableHtml}
+      
       <div class="footer">Generated by TreadGuard CV · Roboflow pothole detection model · PWD repair rate basis</div>
       <script>window.onload = () => { window.print(); };</script>
     </body>
     </html>
   `;
 
-  const printWindow = window.open('', '_blank');
+const printWindow = window.open('', '_blank');
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
 }
 
-function initControls() {
-  /* ── Auto-Analyze Loop ── */
-  let scanInterval = null;
-  let isScanning = false;
-  
-  const analyzeBtn = document.getElementById('analyzeBtn');
-  const video      = document.getElementById('roadVideo');
-  /* ── Live Camera Button ── */
+/* ─────────────────────────────────────────────────
+   MANUAL REPORT GENERATOR (Human-Certified)
+───────────────────────────────────────────────── */
+function generateManualReport() {
+  const now = new Date().toLocaleString('en-IN');
+  const elapsed = Math.floor((Date.now() - State.sessionStartTime) / 1000);
+  const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
 
-  const liveCamBtn = document.getElementById('liveCamBtn');
-  if (liveCamBtn) {
-    liveCamBtn.addEventListener('click', startLiveCamera);
+  // 1. Extract Validated Data for Table & Graph
+  let manualEvents = [];
+  let manualSeverityTimeline = [];
+
+  State.validationFrames.forEach(frame => {
+    // Filter to ONLY include the boxes the human ticked "✓"
+    const validPreds = frame.predictions.filter(p => p._status === 'validated');
+    
+    // Graph Severity Math (Based only on certified area)
+    const frameAreaSqM = validPreds.reduce((sum, p) => sum + (p._metrics?.areaSqM ?? 0), 0);
+    const frameSeverity = frameAreaSqM * 20;
+    manualSeverityTimeline.push(frameSeverity);
+
+    // Table Event Math (Log the location if potholes were certified)
+    if (validPreds.length > 0) {
+      const frameCost = validPreds.reduce((sum, p) => sum + (p._metrics?.cost ?? 0), 0);
+      manualEvents.push({
+        timestamp: frame.timestamp || Date.now(),
+        lat: frame.lat || State.gps.lat,
+        lng: frame.lng || State.gps.lng,
+        count: validPreds.length,
+        repairCost: frameCost
+      });
+    }
+  });
+
+  // 2. Build the Certified Graph
+  if (manualSeverityTimeline.length === 0) manualSeverityTimeline = [0, 0, 0, 0, 0];
+  const maxBars = 150;
+  const step = Math.max(1, Math.floor(manualSeverityTimeline.length / maxBars));
+  const sampledHistory = manualSeverityTimeline.filter((_, i) => i % step === 0);
+  const maxSev = Math.max(...sampledHistory, 15);
+
+  const graphHtml = `
+    <h3 style="margin-top: 30px;">Route Severity Timeline (Auto-Telemetry)</h3>
+    <div style="display: flex; align-items: flex-end; height: 120px; gap: 2px; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-bottom: 30px;">
+      ${sampledHistory.map(sev => {
+        const heightPct = Math.max(2, Math.min(100, (sev / maxSev) * 100));
+        const color = sev > CONFIG.ABRASION_CRITICAL_THRESHOLD ? '#ef4444' : 
+                     (sev > CONFIG.ABRASION_MODERATE_THRESHOLD ? '#f59e0b' : '#00e5a0');
+        return `<div style="flex: 1; background-color: ${color}; height: ${heightPct}%; border-radius: 2px 2px 0 0;"></div>`;
+      }).join('')}
+    </div>
+  `;
+
+  // 3. Build the Certified Table
+  const topEvents = [...manualEvents].sort((a, b) => b.repairCost - a.repairCost).slice(0, 5);
+  let tableHtml = '';
+  if (topEvents.length > 0) {
+    tableHtml = `
+      <h3>Top 5 Certified Pothole Locations</h3>
+      <table>
+        <thead><tr><th>Time</th><th>Lat</th><th>Lng</th><th>Count</th><th>Est. Cost (₹)</th></tr></thead>
+        <tbody>
+          ${topEvents.map(e => `
+            <tr>
+              <td>${new Date(e.timestamp).toLocaleTimeString('en-IN')}</td>
+              <td>${e.lat.toFixed(4)}</td><td>${e.lng.toFixed(4)}</td>
+              <td>${e.count}</td><td>${e.repairCost.toLocaleString('en-IN')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } else {
+    tableHtml = '<p style="margin-top:20px;">No defects manually certified during this session.</p>';
   }
 
-  /* ── Download Report Button ── */
-  const downloadReportBtn = document.getElementById('downloadReportBtn');
-  if (downloadReportBtn) {
-    downloadReportBtn.addEventListener('click', generateReport);
-  }
+  // 4. Render HTML
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>TreadGuard CV - Certified Manual Report</title>
+      <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; padding: 40px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #111; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 30px 0; }
+        .metric { background: #f9f9f9; padding: 15px; border-left: 4px solid #3b82f6; }
+        .metric-label { font-size: 11px; text-transform: uppercase; color: #777; font-weight: bold; }
+        .metric-value { font-size: 22px; font-weight: bold; margin-top: 4px; color: #111;}
+        .cert-badge { background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; vertical-align: middle; margin-left: 6px; letter-spacing: 0.5px;}
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f5f5f5; font-size: 12px; text-transform: uppercase; }
+        .footer { margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>TreadGuard CV — Certified Manual Audit Report</h1>
+      <p><strong>Export Date:</strong> ${now}<br><strong>Session Duration:</strong> ${h}:${m}:${s}<br><strong>Verification Status:</strong> Human Audited & Certified ✓</p>
+      
+      <div class="grid">
+        <div class="metric">
+          <div class="metric-label">Certified Potholes <span class="cert-badge">MANUAL</span></div>
+          <div class="metric-value">${State.validatedPotholesCount}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Certified Repair Cost <span class="cert-badge">MANUAL</span></div>
+          <div class="metric-value">₹${State.validatedRepairCost.toLocaleString('en-IN')}</div>
+        </div>
+        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force (Hardware)</div><div class="metric-value">${Math.abs(State.zAxis.peak).toFixed(2)}G</div></div>
+        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
+      </div>
+      
+      ${graphHtml}
+      ${tableHtml}
+      
+      <div class="footer">Generated by TreadGuard CV · Human-in-the-Loop Certified · PWD repair rate basis</div>
+      <script>window.onload = () => { window.print(); };</script>
+    </body>
+    </html>
+  `;
 
-  // ── Road Width Input ─────────────────────────────────────────────────────
-  // Inject a small calibration field next to the frames counter
-  const framesEl = document.querySelector('.frames-counter');
-  if (framesEl) {
-    const widthUI = document.createElement('div');
-    widthUI.style.cssText = `
-      display:inline-flex; align-items:center; gap:6px;
-      font:600 10px 'Space Mono',monospace;
-      color:var(--text-secondary); margin-left:18px;
-    `;
-    widthUI.innerHTML = `
-      <span style="color:var(--text-muted)">ROAD WIDTH</span>
-      <input id="roadWidthInput" type="number" min="1" max="20" step="0.5"
-        value="${State.roadWidthMetres}"
-        style="
-          width:52px; background:var(--bg-card); border:1px solid var(--border);
-          color:var(--accent); font:600 10px 'Space Mono',monospace;
-          padding:3px 5px; border-radius:4px; text-align:center;
-        "
-      />
-      <span style="color:var(--text-muted)">M</span>
-    `;
-    framesEl.parentNode.insertBefore(widthUI, framesEl);
-
-    document.getElementById('roadWidthInput').addEventListener('change', (e) => {
-      const val = parseFloat(e.target.value);
-      if (!isNaN(val) && val > 0) {
-        State.roadWidthMetres = val;
-        CONFIG.ROAD_WIDTH_METRES = val;
-        console.log(`[TreadGuard] Road width updated to ${val}m`);
-      }
-    });
-  }
+const printWindow = window.open('', '_blank');
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
 
 /* ─────────────────────────────────────────────────
-   LIVE CAMERA HANDLER
+   12. UI CONTROLS & CLOCK
 ───────────────────────────────────────────────── */
-async function startLiveCamera() {
+function initControls() {
+  let scanInterval = null;
+  let isScanning = false;
+  const analyzeBtn = document.getElementById('analyzeBtn');
   const video = document.getElementById('roadVideo');
-  const scanStatus = document.getElementById('scanStatusText');
-  
-  try {
-    // Stop any existing stream (if the user uploaded a video previously)
-    if (video.src) {
-        video.src = '';
+
+  // Helper: read vehicle speed (km/h) from UI and clamp to reasonable range
+  function getVehicleSpeedKmph() {
+    const el = document.getElementById('vehicleSpeedKmph');
+    if (!el) return 30;
+    const v = parseFloat(el.value || '0');
+    if (isNaN(v) || v <= 0) return 5; // walking pace fallback
+    return Math.min(200, Math.max(1, v));
+  }
+
+  // Helper: read road width (metres) from UI, validate and clamp, fallback to 3.5
+  function getRoadWidthMetres() {
+    const el = document.getElementById('roadWidthMetres');
+    if (!el) return State.roadWidthMetres || 3.5;
+    const v = parseFloat(el.value);
+    if (isNaN(v) || v <= 0) return State.roadWidthMetres || 3.5;
+    // clamp to a reasonable 1–12m range
+    return Math.min(12, Math.max(1, v));
+  }
+
+  // Compute adaptive delay (ms) based on vehicle speed and detections' Y position.
+  // Idea: estimate time until the nearest detected pothole reaches the tripwire (y=250),
+  // then schedule the next capture to sample shortly before that moment. This avoids
+  // repeated detections (ghosting) while not skipping approaching potholes.
+  function computeAdaptiveDelay(speedKmph, detections = []) {
+    const minMs = 300;
+    const maxMs = 2500;
+    const defaultMs = 500;
+
+    // If no detections, scale delay modestly with speed (faster -> slightly more frequent sampling)
+    if (!detections || detections.length === 0) {
+      const scaled = Math.round(Math.max(minMs, defaultMs - (speedKmph * 4)));
+      return Math.min(maxMs, Math.max(minMs, scaled));
     }
 
-    // Request the device camera (preferring the rear/main camera on phones)
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: 'environment', // Forces rear camera
-        width: { ideal: 1280 },    // Request a decent resolution
-        height: { ideal: 720 }
-      },
-      audio: false // We don't need audio for road audits
-    });
-    
-    // Pipe the live stream into the video element
-    video.srcObject = stream;
-    
-    // Play the video stream
-    await video.play();
-    scanStatus.textContent = 'CAMERA LIVE ✓';
+    const mPerPx = State.roadWidthMetres / 640; // metres per pixel in model space
+    const speedMps = Math.max(0.1, speedKmph / 3.6);
 
-    // Optional: Automatically start scanning 1 second after the camera boots up
-    setTimeout(() => {
-      const analyzeBtn = document.getElementById('analyzeBtn');
-      // If we aren't scanning yet, click the button
-      if (analyzeBtn.textContent.includes('Start')) {
-        analyzeBtn.click();
+    let bestMs = maxMs;
+    for (const det of detections) {
+      // Tripwire at y = 250px (see processDetectionData)
+      const tripwireY = 250;
+      const distancePx = tripwireY - (det.y ?? 0);
+
+      if (distancePx <= 0) {
+        // Already at or past tripwire — keep a short pause to avoid immediate repeats
+        bestMs = Math.min(bestMs, 900);
+        continue;
       }
-    }, 1000);
 
-  } catch (err) {
-    console.error('[TreadGuard] Camera access denied or failed:', err);
-    alert('Could not access camera. Ensure you are on HTTPS and have granted camera permissions.');
+      const distanceM = distancePx * mPerPx;
+      const timeS = distanceM / speedMps; // seconds until it crosses tripwire
+
+      // Sample at ~60% of the remaining time so we capture the approach without repeating
+      const desiredMs = Math.round(timeS * 1000 * 0.6);
+      if (desiredMs > 0) bestMs = Math.min(bestMs, desiredMs);
+    }
+
+    // Fallback clamp
+    bestMs = Math.min(maxMs, Math.max(minMs, bestMs));
+    return bestMs;
   }
-}
+
 
   // ── Helper: cleanly stop the scan loop ───────────────────────────────
   function stopScanning() {
     isScanning = false;
     clearInterval(scanInterval);
+    clearTimeout(scanInterval);
     scanInterval = null;
     analyzeBtn.innerHTML = 'Start Auto-Scan';
     analyzeBtn.style.background = 'var(--bg-card)';
     analyzeBtn.style.color = 'var(--text-secondary)';
   }
+
+  // Initialize road width input and attach change handler
+  (function initRoadWidthInput() {
+    const el = document.getElementById('roadWidthMetres');
+    if (!el) return;
+    // Ensure UI shows current state on load
+    el.value = State.roadWidthMetres || 3.5;
+    el.addEventListener('change', () => {
+      const w = getRoadWidthMetres();
+      State.roadWidthMetres = w;
+      console.log(`[TreadGuard] Road width calibrated to ${w} m`);
+    });
+  })();
 
   // ── Auto-stop when the video finishes playing ─────────────────────────
   video.addEventListener('ended', () => {
@@ -1620,11 +1810,24 @@ async function startLiveCamera() {
       e.target.style.background = 'var(--red)';
       e.target.style.color = '#fff';
 
-      // Run once immediately, then every 500ms for faster paced video
+      // Run once immediately, then schedule subsequent captures adaptively
+      let prevDelay = 500;
+
+      async function scheduleNext() {
+        const speed = getVehicleSpeedKmph();
+        const delay = computeAdaptiveDelay(speed, State.detections) || 500;
+        // Smooth small jitter between delays
+        const smoothed = Math.round(prevDelay * 0.6 + delay * 0.4);
+        prevDelay = smoothed;
+
+        scanInterval = setTimeout(async () => {
+          await runAnalysis();
+          if (isScanning) scheduleNext();
+        }, smoothed);
+      }
+
       runAnalysis();
-      scanInterval = setInterval(() => {
-        runAnalysis();
-      }, 500);
+      scheduleNext();
     } else {
       stopScanning();
     }
@@ -1644,13 +1847,137 @@ async function startLiveCamera() {
     State.zAxis.events   = 0;
     State.zAxis.readings = [];
     State.roughnessHistory = new Array(CONFIG.GRAPH_HISTORY_POINTS).fill(0);
+    
+    // Clear Validation Board
+    State.validationFrames = [];
+    State.validatedPotholesCount = 0;
+    State.validatedRepairCost = 0;
+    const valCountEl = document.getElementById('valCount');
+    const valCostEl = document.getElementById('valCost');
+    if (valCountEl) valCountEl.textContent = '0';
+    if (valCostEl) valCostEl.textContent = '0';
+    const grid = document.getElementById('vdGrid');
+    if (grid) grid.innerHTML = '';
 
-    processDetectionData(0, []);
+processDetectionData(0, []);
     document.getElementById('frameCounter').textContent = '0';
     document.getElementById('zPeak').textContent   = '0.00G';
     document.getElementById('zAvg').textContent    = '0.00G';
     document.getElementById('zEvents').textContent = '0';
   });
+
+  /* ── Download Report Buttons ── */
+  const downloadReportBtn = document.getElementById('downloadReportBtn');
+  if (downloadReportBtn) {
+    downloadReportBtn.addEventListener('click', generateReport);
+  }
+
+  const downloadManualReportBtn = document.getElementById('downloadManualReportBtn');
+  if (downloadManualReportBtn) {
+    downloadManualReportBtn.addEventListener('click', generateManualReport);
+  }
+
+  /* ── Validation Dashboard Initialization ── */
+  const validateBtn = document.getElementById('validateBtn');
+  const validationDashboard = document.getElementById('validationDashboard');
+
+  if (validateBtn && validationDashboard) {
+    validateBtn.addEventListener('click', () => {
+      const isHidden = validationDashboard.style.display === 'none';
+      validationDashboard.style.display = isHidden ? 'block' : 'none';
+      
+      if (isHidden) {
+        // Auto-pause scanning so the user can focus
+        if (isScanning) analyzeBtn.click(); 
+        
+        renderValidationFrames();
+        setTimeout(() => validationDashboard.scrollIntoView({ behavior: 'smooth' }), 100);
+      }
+    });
+  }
+
+  function renderValidationFrames() {
+    const grid = document.getElementById('vdGrid');
+    grid.innerHTML = '';
+
+    if (State.validationFrames.length === 0) {
+      grid.innerHTML = '<p style="color: var(--text-muted); font-family: var(--font-mono); grid-column: 1/-1;">No frames with detections available yet. Run the scanner first.</p>';
+      return;
+    }
+
+    // Display newest frames first
+    [...State.validationFrames].reverse().forEach(frame => {
+      const wrap = document.createElement('div');
+      wrap.className = 'vd-frame-wrapper';
+
+      const img = document.createElement('img');
+      img.src = 'data:image/jpeg;base64,' + frame.image;
+      img.className = 'vd-frame-img';
+      wrap.appendChild(img);
+
+      frame.predictions.forEach(det => {
+        if (det._status === undefined) det._status = 'pending';
+
+        // Dynamically calculate percentages based on the ACTUAL image resolution
+        const frameW = frame.width || 640;
+        const frameH = frame.height || 360;
+
+        const leftPct   = ((det.x - det.width / 2) / frameW) * 100;
+        const topPct    = ((det.y - det.height / 2) / frameH) * 100;
+        const widthPct  = (det.width / frameW) * 100;
+        const heightPct = (det.height / frameH) * 100;
+
+        const bbox = document.createElement('div');
+        bbox.className = `vd-bbox ${det._status !== 'pending' ? det._status : ''}`;
+        bbox.style.left   = `${leftPct}%`;
+        bbox.style.top    = `${topPct}%`;
+        bbox.style.width  = `${widthPct}%`;
+        bbox.style.height = `${heightPct}%`;
+
+        const actions = document.createElement('div');
+        actions.className = `vd-actions ${det._status !== 'pending' ? 'hidden' : ''}`;
+        
+        const tickBtn = document.createElement('button');
+        tickBtn.className = 'vd-btn vd-btn-tick';
+        tickBtn.textContent = '✓';
+        
+        const crossBtn = document.createElement('button');
+        crossBtn.className = 'vd-btn vd-btn-cross';
+        crossBtn.textContent = '✕';
+
+        // Operator confirmed Pothole
+        tickBtn.onclick = () => {
+          det._status = 'validated';
+          bbox.classList.add('validated');
+          actions.classList.add('hidden');
+          
+          State.validatedPotholesCount++;
+          if (!det._metrics) det._metrics = calcPotholeMetrics(det);
+          State.validatedRepairCost += det._metrics.cost;
+          
+          updateValidationCounters();
+        };
+
+        // Operator rejected false positive
+        crossBtn.onclick = () => {
+          det._status = 'rejected';
+          bbox.classList.add('rejected');
+          actions.classList.add('hidden');
+        };
+
+        actions.appendChild(tickBtn);
+        actions.appendChild(crossBtn);
+        bbox.appendChild(actions);
+        wrap.appendChild(bbox);
+      });
+      grid.appendChild(wrap);
+    });
+  }
+
+  function updateValidationCounters() {
+    document.getElementById('valCount').textContent = State.validatedPotholesCount;
+    document.getElementById('valCost').textContent = State.validatedRepairCost.toLocaleString('en-IN');
+  }
 
   /* ── Demo / Live Toggle ── */
   const demoToggle  = document.getElementById('demoToggle');
@@ -1683,8 +2010,8 @@ async function startLiveCamera() {
       stopDemoMode();
     }
   }
-}
 
+}
 /** Session clock ticker */
 function startSessionClock() {
   const el = document.getElementById('sessionClock');
