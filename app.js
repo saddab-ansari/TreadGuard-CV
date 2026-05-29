@@ -109,9 +109,14 @@ const State = {
   severityHistory: [], // Stores every frame's severity for the report graph
   lastAnalyzedVideoTime: -1, // video.currentTime at last API call — prevents duplicate frames
 
-  // ── GPS & Detection Log ──────────────────────────────────────────────────
+// ── GPS & Detection Log ──────────────────────────────────────────────────
   gps: { lat: 12.9716, lng: 77.5946, simulated: true }, // Bangalore fallback until real GPS arrives
   detectionLog: [],   // { timestamp, lat, lng, count, repairCost } — capped at 50 entries
+  
+  // ── Telemetry / CSV Data ─────────────────────────────────────────────────
+  hasZAxisData: true,
+  isLiveSensorActive: false,
+  csvZData: [],
   
   // ── Manual Validation ────────────────────────────────────────────────────
   validationFrames: [],
@@ -255,6 +260,18 @@ async function runAnalysis() {
       State.apiConnected = true;
       State.framesAnalyzed++;
       updateFooterLights(true);
+
+      // ── Sync CSV Data with Video Playback ──
+      // Pulls the correct G-Force reading based on exactly how far along the video is!
+      if (State.csvZData.length > 0) {
+        const vid = document.getElementById('roadVideo');
+        if (vid && vid.duration) {
+          const progress = vid.currentTime / vid.duration;
+          const index = Math.min(Math.floor(progress * State.csvZData.length), State.csvZData.length - 1);
+          processZAxisReading(State.csvZData[index]);
+        }
+      }
+
     } else {
       // Demo / fallback mode
       injectDummyData();
@@ -923,19 +940,84 @@ function renderDetectionBoxes(detections) {
 }
 
 /* ─────────────────────────────────────────────────
-   7. Z-AXIS SENSOR — DeviceMotion API
+   7. Z-AXIS SENSOR & DATA PROCESSING
 ───────────────────────────────────────────────── */
-function initZAxisSensor() {
+function processZAxisReading(gz) {
+  const absGz = Math.abs(gz);
+  
+  State.zAxis.current = gz;
+  State.zAxis.history.push(gz);
+  if (State.zAxis.history.length > CONFIG.ZBAR_COUNT) State.zAxis.history.shift();
+
+  State.zAxis.readings.push(absGz);
+  if (State.zAxis.readings.length > 60) State.zAxis.readings.shift();
+
+  if (absGz > Math.abs(State.zAxis.peak)) State.zAxis.peak = gz;
+  if (absGz > 0.5) State.zAxis.events++;
+
+  State.roughnessHistory.push(absGz);
+  if (State.roughnessHistory.length > CONFIG.GRAPH_HISTORY_POINTS) {
+    State.roughnessHistory.shift();
+  }
+
+  // DOM updates
   const zValueEl   = document.getElementById('zAxisValue');
   const zSignEl    = document.getElementById('zAxisSign');
-  const zPeakEl    = document.getElementById('zPeak');
-  const zAvgEl     = document.getElementById('zAvg');
-  const zEventsEl  = document.getElementById('zEvents');
+  if (!zValueEl) return;
+
+  zValueEl.textContent = absGz.toFixed(2);
+  zSignEl.textContent  = gz >= 0 ? '+' : '−';
+
+  if (absGz > 0.8) {
+    zValueEl.style.color = 'var(--red)';
+    zValueEl.style.textShadow = '0 0 20px rgba(239,68,68,0.6)';
+  } else if (absGz > 0.4) {
+    zValueEl.style.color = 'var(--amber)';
+    zValueEl.style.textShadow = '0 0 20px rgba(245,158,11,0.5)';
+  } else {
+    zValueEl.style.color = 'var(--accent)';
+    zValueEl.style.textShadow = '0 0 20px var(--accent-glow)';
+  }
+
+  const avg = State.zAxis.readings.reduce((a,b) => a + b, 0) / Math.max(1, State.zAxis.readings.length);
+  document.getElementById('zPeak').textContent   = `${Math.abs(State.zAxis.peak).toFixed(2)}G`;
+  document.getElementById('zAvg').textContent    = `${avg.toFixed(2)}G`;
+  document.getElementById('zEvents').textContent = State.zAxis.events;
+
+  updateZAxisBars(State.zAxis.history);
+  drawRoughnessGraph(State.roughnessHistory);
+}
+
+function setZAxisNoData() {
+  document.getElementById('zAxisValue').textContent = '--';
+  document.getElementById('zAxisSign').textContent = '';
+  document.getElementById('zAxisValue').style.color = 'var(--text-muted)';
+  document.getElementById('zAxisValue').style.textShadow = 'none';
+  document.getElementById('zPeak').textContent = 'No Data';
+  document.getElementById('zAvg').textContent = 'No Data';
+  document.getElementById('zEvents').textContent = '-';
+  document.getElementById('sensorStatusText').textContent = 'No G-meter values found. Upload a CSV.';
+  document.getElementById('flSensor').style.background = 'var(--text-muted)';
+  document.querySelector('.sensor-dot').className = 'sensor-dot';
+  
+  const container = document.getElementById('zAxisBars');
+  if (container) container.innerHTML = '<div style="color:var(--text-muted); font-size:9px; padding-top:20px; font-family:var(--font-mono);">NO TELEMETRY DATA</div>';
+  
+  const canvas = document.getElementById('roughnessGraph');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '10px "Space Mono", monospace';
+    ctx.fillText('NO G-FORCE DATA UPLOADED', 10, 20);
+  }
+}
+
+function initZAxisSensor() {
   const sensorDot  = document.querySelector('.sensor-dot');
   const sensorText = document.getElementById('sensorStatusText');
   const flSensor   = document.getElementById('flSensor');
 
-  // iOS 13+ requires permission
   const requestPermission = () => {
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -957,142 +1039,37 @@ function initZAxisSensor() {
         setSensorError('Sensor data unavailable on this device.');
         return;
       }
+      State.isLiveSensorActive = true;
+      State.hasZAxisData = true;
+      
+      clearInterval(State.simulatorInterval); // Stop desktop demo
+      
+      const gz = parseFloat((z / 9.81).toFixed(3));
+      processZAxisReading(gz);
 
-      const gz = parseFloat((z / 9.81).toFixed(3)); // Convert m/s² → G
-
-      // Update state
-      State.zAxis.current = gz;
-      State.zAxis.history.push(gz);
-      if (State.zAxis.history.length > CONFIG.ZBAR_COUNT) State.zAxis.history.shift();
-
-      State.zAxis.readings.push(Math.abs(gz));
-      if (State.zAxis.readings.length > 60) State.zAxis.readings.shift();
-
-      if (Math.abs(gz) > Math.abs(State.zAxis.peak)) State.zAxis.peak = gz;
-      if (Math.abs(gz) > 0.5) State.zAxis.events++;
-
-      // Update roughness history for graph
-      State.roughnessHistory.push(Math.abs(gz));
-      if (State.roughnessHistory.length > CONFIG.GRAPH_HISTORY_POINTS) {
-        State.roughnessHistory.shift();
-      }
-
-      // DOM updates
-      const absGz = Math.abs(gz);
-      zValueEl.textContent = absGz.toFixed(2);
-      zSignEl.textContent  = gz >= 0 ? '+' : '−';
-
-      // Color coding
-      if (absGz > 0.8) {
-        zValueEl.style.color = 'var(--red)';
-        zValueEl.style.textShadow = '0 0 20px rgba(239,68,68,0.6)';
-      } else if (absGz > 0.4) {
-        zValueEl.style.color = 'var(--amber)';
-        zValueEl.style.textShadow = '0 0 20px rgba(245,158,11,0.5)';
-      } else {
-        zValueEl.style.color = 'var(--accent)';
-        zValueEl.style.textShadow = '0 0 20px var(--accent-glow)';
-      }
-
-      // Stats
-      const avg = State.zAxis.readings.reduce((a,b) => a + b, 0) / State.zAxis.readings.length;
-      zPeakEl.textContent   = `${Math.abs(State.zAxis.peak).toFixed(2)}G`;
-      zAvgEl.textContent    = `${avg.toFixed(2)}G`;
-      zEventsEl.textContent = State.zAxis.events;
-
-      // Update bar visualizer
-      updateZAxisBars(State.zAxis.history);
-
-      // Update waveform graph
-      drawRoughnessGraph(State.roughnessHistory);
-
-      // Sensor status
       sensorDot.className = 'sensor-dot sensor-dot--active';
       sensorText.textContent = 'Accelerometer active — live readings';
       flSensor.style.background = 'var(--accent)';
     }, { passive: true });
-
-    sensorDot.className = 'sensor-dot sensor-dot--warn';
-    sensorText.textContent = 'Waiting for motion event…';
   }
 
   function setSensorError(msg) {
     sensorDot.className = 'sensor-dot sensor-dot--error';
     sensorText.textContent = msg;
     flSensor.style.background = 'var(--red)';
-    // Fall back to simulated Z data in demo mode
-    startSimulatedZAxis();
   }
 
-  // Kick off permission request
   requestPermission();
 
-  // On desktop/no sensor: always start simulation too as backup after 2s
-  setTimeout(() => {
-    if (State.zAxis.readings.length === 0) {
-      sensorText.textContent = 'No sensor detected — simulating roughness data';
-      startSimulatedZAxis();
+  // Desktop demo fallback: Start simulator initially for the live preview, 
+  // it shuts down automatically if user uploads video without a CSV.
+  State.simulatorInterval = setInterval(() => {
+    if (!State.isLiveSensorActive && State.hasZAxisData && State.csvZData.length === 0) {
+      const t = Date.now() / 150;
+      const gz = parseFloat((Math.sin(t * 0.15) * 0.08 + (Math.random() < 0.08 ? (Math.random() * 1.2 - 0.3) : 0) + (Math.random() - 0.5) * 0.05).toFixed(3));
+      processZAxisReading(gz);
+      if(sensorText) sensorText.textContent = 'Simulated sensor data (desktop mode)';
     }
-  }, 2000);
-}
-
-/**
- * Simulates Z-axis data for desktop/demo environments
- * where DeviceMotion is not available.
- */
-function startSimulatedZAxis() {
-  const sensorDot  = document.querySelector('.sensor-dot');
-  const sensorText = document.getElementById('sensorStatusText');
-
-  sensorDot.className = 'sensor-dot sensor-dot--warn';
-  sensorText.textContent = 'Simulated sensor data (desktop mode)';
-
-  let t = 0;
-  setInterval(() => {
-    // Composite wave: smooth road with occasional bumps
-    const base    = Math.sin(t * 0.15) * 0.08;
-    const bump    = Math.random() < 0.08 ? (Math.random() * 1.2 - 0.3) : 0;
-    const noise   = (Math.random() - 0.5) * 0.05;
-    const gz      = parseFloat((base + bump + noise).toFixed(3));
-
-    const absGz   = Math.abs(gz);
-    State.zAxis.current = gz;
-    State.zAxis.history.push(gz);
-    if (State.zAxis.history.length > CONFIG.ZBAR_COUNT) State.zAxis.history.shift();
-
-    State.zAxis.readings.push(absGz);
-    if (State.zAxis.readings.length > 60) State.zAxis.readings.shift();
-    if (absGz > Math.abs(State.zAxis.peak)) State.zAxis.peak = gz;
-    if (absGz > 0.5) State.zAxis.events++;
-
-    State.roughnessHistory.push(absGz);
-    if (State.roughnessHistory.length > CONFIG.GRAPH_HISTORY_POINTS) State.roughnessHistory.shift();
-
-    // DOM
-    document.getElementById('zAxisValue').textContent = absGz.toFixed(2);
-    document.getElementById('zAxisSign').textContent  = gz >= 0 ? '+' : '−';
-
-    const zEl = document.getElementById('zAxisValue');
-    if (absGz > 0.8) {
-      zEl.style.color = 'var(--red)';
-      zEl.style.textShadow = '0 0 20px rgba(239,68,68,0.6)';
-    } else if (absGz > 0.4) {
-      zEl.style.color = 'var(--amber)';
-      zEl.style.textShadow = '0 0 20px rgba(245,158,11,0.5)';
-    } else {
-      zEl.style.color = 'var(--accent)';
-      zEl.style.textShadow = '0 0 20px var(--accent-glow)';
-    }
-
-    const avg = State.zAxis.readings.reduce((a,b)=>a+b,0) / State.zAxis.readings.length;
-    document.getElementById('zPeak').textContent   = `${Math.abs(State.zAxis.peak).toFixed(2)}G`;
-    document.getElementById('zAvg').textContent    = `${avg.toFixed(2)}G`;
-    document.getElementById('zEvents').textContent = State.zAxis.events;
-
-    updateZAxisBars(State.zAxis.history);
-    drawRoughnessGraph(State.roughnessHistory);
-
-    t++;
   }, 120);
 }
 
@@ -1399,9 +1376,6 @@ function updateFooterLights(apiOk) {
   flApi.style.background = apiOk ? 'var(--accent)' : 'var(--red)';
 }
 
-/* ─────────────────────────────────────────────────
-   11. UPLOAD HANDLER
-───────────────────────────────────────────────── */
 function initUploadHandler() {
   const input   = document.getElementById('footageUpload');
   const video   = document.getElementById('roadVideo');
@@ -1410,46 +1384,114 @@ function initUploadHandler() {
   const confirm = document.getElementById('modalConfirm');
   const close   = document.getElementById('modalClose');
 
-  input.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // Wire modal actions: confirm begins analysis, close hides modal
+  if (confirm) {
+    confirm.addEventListener('click', (ev) => {
+      modal.hidden = true;
+      // Prefer toggling the main Analyze button so the UI reflects auto-scan state
+      const analyzeBtnEl = document.getElementById('analyzeBtn');
+      if (analyzeBtnEl) {
+        // If the button shows "Start", click it to start auto-scan; otherwise run a single analysis
+        if (/Start/i.test(analyzeBtnEl.innerText)) analyzeBtnEl.click();
+        else runAnalysis();
+      } else {
+        runAnalysis();
+      }
+    });
+  }
+  if (close) {
+    close.addEventListener('click', () => { modal.hidden = true; });
+  }
 
-    const url = URL.createObjectURL(file);
-    const isVideo = file.type.startsWith('video/');
+  input.addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-    if (isVideo) {
-      video.src = url;
-      video.load();
-      video.pause();   // Stay paused — play only when user confirms the modal
-    } else {
-      // Image: use as poster
-      video.poster = url;
-      video.src    = '';
+    // Separate media from CSV
+    const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
+    const csvFile   = files.find(f => f.name.endsWith('.csv') || f.type === 'text/csv');
+
+    let descText = "";
+
+    if (mediaFile) {
+      const url = URL.createObjectURL(mediaFile);
+      if (mediaFile.type.startsWith('video/')) {
+        video.src = url;
+        video.load();
+        video.pause();
+      } else {
+        video.poster = url;
+        video.src = '';
+      }
+      descText += `"${mediaFile.name}" loaded. `;
     }
 
-    desc.textContent = `"${file.name}" loaded (${(file.size / 1e6).toFixed(1)} MB). Ready for analysis.`;
+    if (csvFile) {
+      const text = await csvFile.text();
+      const lines = text.trim().split('\n');
+      State.csvZData = [];
+      let zIndex = -1;
+      
+      // Auto-find Z column header, fallback to last column
+      // 1. Skip metadata comments (like "# Target Sample Rate: 200 Hz")
+      let headerIdx = 0;
+      while (headerIdx < lines.length && lines[headerIdx].trim().startsWith('#')) {
+        headerIdx++;
+      }
+
+      if (headerIdx < lines.length) {
+        const headers = lines[headerIdx].toLowerCase().split(',');
+        let isTotalG = false;
+
+        // 2. Look for "TgF" (Total G-Force) first, then fallback to Z-axis
+        for (let i = 0; i < headers.length; i++) {
+          if (headers[i].includes('tgf') || headers[i].includes('total')) {
+            zIndex = i;
+            isTotalG = true;
+            break;
+          }
+        }
+        if (zIndex === -1) {
+          for (let i = 0; i < headers.length; i++) {
+            if (headers[i].includes('z')) { zIndex = i; break; }
+          }
+        }
+        if (zIndex === -1) zIndex = headers.length - 1; 
+        
+        // 3. Parse Data and Calibrate Gravity
+        for (let i = headerIdx + 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length > zIndex) {
+            let val = parseFloat(cols[zIndex]);
+            if (!isNaN(val)) {
+              // If we use Total G, subtract 1G (baseline gravity) so flat roads = 0.00G
+              if (isTotalG) val = val - 1.0;
+              State.csvZData.push(val);
+            }
+          }
+        }
+      }
+      
+      // Reset peak when a new CSV is loaded
+      State.zAxis.peak = 0;
+      descText += `\nTelemetry CSV synced (${State.csvZData.length} records).`;
+      State.hasZAxisData = true;
+      document.getElementById('sensorStatusText').textContent = 'Telemetry synced from CSV.';
+      document.getElementById('flSensor').style.background = 'var(--accent)';
+      document.querySelector('.sensor-dot').className = 'sensor-dot sensor-dot--active';
+    } else if (mediaFile) {
+      // User uploaded video but NO CSV. Safely kill the simulator!
+      State.csvZData = [];
+      if (!State.isLiveSensorActive) {
+        State.hasZAxisData = false;
+        setZAxisNoData();
+      }
+    }
+
+    desc.textContent = descText || "Ready for analysis.";
     modal.hidden = false;
   });
 
-  confirm.addEventListener('click', () => {
-    modal.hidden = true;
-
-    const analyzeBtn = document.getElementById('analyzeBtn');
-    const isVideoLoaded = video.src && video.src !== window.location.href && video.readyState >= 1;
-
-    if (isVideoLoaded) {
-      // Ensure the video is playing so frame capture works
-      video.play().catch(() => {});
-      // Give the video 300ms to start, then kick the scan loop
-      setTimeout(() => analyzeBtn.click(), 300);
-    } else {
-      // Image or fallback: single analysis pass
-      runAnalysis();
-    }
-  });
-
-  close.addEventListener('click', () => { modal.hidden = true; });
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
 }
 
 /* ─────────────────────────────────────────────────
@@ -1550,8 +1592,8 @@ function generateReport() {
         <div class="metric"><div class="metric-label">Est. Repair Cost</div><div class="metric-value">₹${Math.round(State.totalRepairCost).toLocaleString('en-IN')}</div></div>
         <div class="metric"><div class="metric-label">Overall Road Quality</div><div class="metric-value">${overallScore} (Grade ${overallGrade})</div></div>
         <div class="metric"><div class="metric-label">Overall Abrasion Index</div><div class="metric-value">${overallAbrasion}</div></div>
-        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force</div><div class="metric-value">${Math.abs(State.zAxis.peak).toFixed(2)}G</div></div>
-        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
+        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force</div><div class="metric-value" ${!State.hasZAxisData ? 'style="color:#888;"' : ''}>${State.hasZAxisData ? Math.abs(State.zAxis.peak).toFixed(2) + 'G' : 'No Data'}</div></div>
+        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value" ${!State.hasZAxisData ? 'style="color:#888;"' : ''}>${State.hasZAxisData ? State.zAxis.events : 'No Data'}</div></div>
       </div>
       
       ${graphHtml}
@@ -1678,8 +1720,8 @@ function generateManualReport() {
           <div class="metric-label">Certified Repair Cost <span class="cert-badge">MANUAL</span></div>
           <div class="metric-value">₹${State.validatedRepairCost.toLocaleString('en-IN')}</div>
         </div>
-        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force (Hardware)</div><div class="metric-value">${Math.abs(State.zAxis.peak).toFixed(2)}G</div></div>
-        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value">${State.zAxis.events}</div></div>
+        <div class="metric"><div class="metric-label">Z-Axis Peak G-Force (Hardware)</div><div class="metric-value" ${!State.hasZAxisData ? 'style="color:#888;"' : ''}>${State.hasZAxisData ? Math.abs(State.zAxis.peak).toFixed(2) + 'G' : 'No Data'}</div></div>
+        <div class="metric"><div class="metric-label">Significant Bump Events</div><div class="metric-value" ${!State.hasZAxisData ? 'style="color:#888;"' : ''}>${State.hasZAxisData ? State.zAxis.events : 'No Data'}</div></div>
       </div>
       
       ${graphHtml}
@@ -1809,6 +1851,18 @@ function initControls() {
       e.target.innerHTML = 'Stop Scanning';
       e.target.style.background = 'var(--red)';
       e.target.style.color = '#fff';
+
+      // Ensure the video plays when scanning starts
+      try {
+        if (video && video.src) {
+          const playPromise = video.play();
+          if (playPromise && typeof playPromise.then === 'function') {
+            playPromise.catch(err => { console.warn('[TreadGuard] Video play prevented:', err); });
+          }
+        }
+      } catch (err) {
+        console.warn('[TreadGuard] Error attempting to play video:', err);
+      }
 
       // Run once immediately, then schedule subsequent captures adaptively
       let prevDelay = 500;
