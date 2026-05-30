@@ -935,8 +935,12 @@ body::before {
   pointer-events: none; 
 }
 .vd-actions {
-  position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex; gap: 6px; pointer-events: auto; z-index: 10;
+  margin-bottom: 6px; /* small gap so button bottoms don't sit flush against bbox */
 }
 .vd-btn {
   width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer;
@@ -946,6 +950,24 @@ body::before {
 .vd-btn:hover { transform: scale(1.15); }
 .vd-btn-tick { background: var(--accent); color: #000; }
 .vd-btn-cross { background: var(--red); color: #fff; }
+
+/* Confidence percentage badge shown on each validation bbox */
+.vd-confidence {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(34px);
+  margin-bottom: 6px;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 14;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+}
 
 .vd-bbox.validated { border-style: solid; border-color: var(--accent); background: rgba(0,229,160,0.1); }
 .vd-bbox.rejected { border-color: var(--text-muted); opacity: 0.3; }
