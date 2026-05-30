@@ -600,7 +600,16 @@ function processZAxisReading(gz) {
   if (State.zAxis.readings.length > 60) State.zAxis.readings.shift();
 
   if (absGz > Math.abs(State.zAxis.peak)) State.zAxis.peak = gz;
-  if (absGz > 0.5) State.zAxis.events++;
+  
+/* ── Hardware Debounce Fix ── */
+  if (absGz > 0.5) {
+    const now = Date.now();
+    // Only count a new event if 600ms have passed since the last one
+    if (!State.zAxis.lastEventTime || (now - State.zAxis.lastEventTime > 600)) {
+      State.zAxis.events++;
+      State.zAxis.lastEventTime = now;
+    }
+  }
 
   State.roughnessHistory.push(absGz);
   if (State.roughnessHistory.length > CONFIG.GRAPH_HISTORY_POINTS) {
@@ -725,9 +734,20 @@ function initZAxisSensor() {
     }
   };
 
+
   function attachListener() {
     window.addEventListener('devicemotion', (event) => {
-      const z = event.accelerationIncludingGravity?.z;
+      // 1. Try to get pure acceleration (Earth's gravity automatically removed by hardware)
+      let z = event.acceleration?.z;
+
+      // 2. Fallback for older phones: use raw sensor but mathematically subtract Earth's 9.81m/s² gravity
+      if (z === null || z === undefined) {
+        z = event.accelerationIncludingGravity?.z;
+        if (z !== null && z !== undefined) {
+          z = z - 9.81; 
+        }
+      }
+
       if (z === null || z === undefined) {
         setSensorError('Sensor data unavailable on this device.');
         return;
@@ -743,6 +763,7 @@ function initZAxisSensor() {
       flSensor.style.background = 'var(--accent)';
     }, { passive: true });
   }
+    
 
   function setSensorError(msg) {
     sensorDot.className = 'sensor-dot sensor-dot--error';
@@ -1071,6 +1092,8 @@ function initUploadHandler() {
 
     const resetBtn = document.getElementById('resetBtn');
     if (resetBtn) resetBtn.click();
+
+    
 
     // Separate media from CSV
     const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
@@ -1670,6 +1693,37 @@ processDetectionData(0, []);
     document.getElementById('zAvg').textContent    = '0.00G';
     document.getElementById('zEvents').textContent = '0';
   });
+
+  /* ── Live Camera Button ── */
+  const liveCamBtn = document.getElementById('liveCamBtn');
+  if (liveCamBtn) {
+    liveCamBtn.addEventListener('click', async () => {
+      try {
+        // Request the rear-facing camera
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false
+        });
+        
+        // Feed the live stream into the video element
+        video.src = ''; // Clear any uploaded file
+        video.srcObject = stream;
+        
+        // Wait for it to load, then play
+        video.onloadedmetadata = () => {
+          video.play();
+          console.log('[TreadGuard] Live camera active.');
+          
+          // Optional: Force stop scanner if it was running on an old video
+          if (isScanning) analyzeBtn.click();
+        };
+
+      } catch (err) {
+        console.error('[TreadGuard] Camera access failed:', err);
+        alert('Could not access the camera. Please make sure camera permissions are allowed in your browser settings.');
+      }
+    });
+  }
 
   /* ── Download Report Buttons ── */
   const downloadReportBtn = document.getElementById('downloadReportBtn');
