@@ -1221,6 +1221,20 @@ function initUploadHandler() {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
+    /* ─────────────────────────────────────────────────
+       BUG FIX: WIPE STATE ON NEW UPLOAD
+    ───────────────────────────────────────────────── */
+    // 1. Force stop the AI scanner if it's currently running
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn && analyzeBtn.innerText.includes('Stop')) {
+      analyzeBtn.click(); 
+    }
+
+    // 2. Trigger the invisible reset button to wipe all old data, graphs, and timestamps
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) resetBtn.click();
+    /* ───────────────────────────────────────────────── */
+
     // Separate media from CSV
     const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
     const csvFile   = files.find(f => f.name.endsWith('.csv') || f.type === 'text/csv');
@@ -1304,6 +1318,8 @@ function initUploadHandler() {
 
     desc.textContent = descText || "Ready for analysis.";
     modal.hidden = false;
+    // Reset the input so it detects future uploads perfectly
+    e.target.value = '';
   });
 
 }
