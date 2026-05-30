@@ -11,7 +11,7 @@
  *   npm install          (first time only)
  *   node server.js       (then open http://localhost:3000)
  */
-
+require('dotenv').config();
 const express  = require('express');
 const fetch    = require('node-fetch');
 const path     = require('path');
@@ -20,7 +20,7 @@ const app  = express();
 const PORT = 3000;
 
 // ── Roboflow config ────────────────────────────────────────────────────────
-const ROBOFLOW_API_KEY  = '8JrtmfXQ7ODSLGF2kByF'; // your key
+const ROBOFLOW_API_KEY  = process.env.ROBOFLOW_API_KEY; // key
 const ROBOFLOW_ENDPOINT =
   'https://serverless.roboflow.com/infer/workflows/saddabs-workspace/detect-count-and-visualize';
 
