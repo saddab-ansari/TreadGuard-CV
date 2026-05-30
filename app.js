@@ -1,21 +1,13 @@
-/* ═══════════════════════════════════════════════════
-   TreadGuard CV — app.js
-   Pure vanilla JS | No build step | No frameworks
-   ─────────────────────────────────────────────────
-   Sections:
-   1. Configuration & Constants
-   2. State Management
-   3. API Integration (Roboflow)
-   4. Detection Data Processor & DOM Updaters
-   5. Canvas HUD Renderer
-   6. Z-Axis Sensor (DeviceMotion)
-   7. Roughness Waveform Graph
-   8. Skid Gauge (Canvas)
-   9. Quality Ring (Canvas)
-   10. Upload Handler
-   11. UI Controls & Clock
-   12. Initializer
-═══════════════════════════════════════════════════ */
+/* TreadGuard CV — app.js
+   Pure vanilla JS · No build step · No frameworks
+
+   1. Configuration & Constants     7. Roughness Waveform Graph
+   2. State Management               8. Skid Gauge (Canvas)
+   3. API Integration (Roboflow)     9. Quality Ring (Canvas)
+   4. Detection Data Processor      10. Upload Handler
+   5. Canvas HUD Renderer           11. UI Controls & Clock
+   6. Z-Axis Sensor (DeviceMotion)  12. Initializer
+*/
 
 'use strict';
 
@@ -25,31 +17,19 @@
    !! REPLACE THESE PLACEHOLDERS BEFORE GOING LIVE !!
 ───────────────────────────────────────────────── */
 const CONFIG = {
-  // ╔══════════════════════════════════════════════╗
-  // ║   YOUR_ROBOFLOW_MODEL_ENDPOINT               ║
-  // ║   Example: https://detect.roboflow.com/      ║
-  // ║           pothole-detection-model/3          ║
-  // ╚══════════════════════════════════════════════╝
-  // Correct Roboflow Workflow REST endpoint:
-  // POST https://serverless.roboflow.com/infer/workflows/{workspace}/{workflow_id}
-  ROBOFLOW_ENDPOINT: '/api/analyze',   // Proxied via server.js → Roboflow (avoids CORS),
+  ROBOFLOW_ENDPOINT: '/api/analyze',  // Proxied via server.js → Roboflow (no CORS issue)
 
-  // ── API key lives in server.js (ROBOFLOW_API_KEY) ──────────────────────
-  // Do NOT put it here — app.js is public; server.js is private/server-side.
+  // API key lives in server.js — do NOT put it here.
 
-  // ── Road width for pixel→metre calibration ─────────────────────────────
-  // Standard Indian single lane = 3.5m (IRC:86). User can override via UI.
-  ROAD_WIDTH_METRES: 4.5,
+  ROAD_WIDTH_METRES: 4.5,  // IRC:86 standard lane; user can override via UI
 
-  // ── PWD-based repair rates (₹/m²) ───────────────────────────────────────
-  // Source: PWD Schedule of Rates — ₹573.33/m² base (materials+labour+royalty)
-  // Small patches cost more per m² due to fixed mobilization overhead.
+  // PWD Schedule of Rates (₹/m²)
   REPAIR_RATE_SMALL:  900,    // < 0.1 m²  (micro patch)
   REPAIR_RATE_MEDIUM: 700,    // 0.1–0.5 m² (standard patch)
   REPAIR_RATE_LARGE:  573,    // > 0.5 m²  (PWD base rate)
   REPAIR_MOBILIZATION: 500,   // ₹ flat call-out per pothole (labour fixed cost)
 
-  COST_PER_POTHOLE: 2500,           // INR (kept as fallback only)
+  COST_PER_POTHOLE: 2500,           // fallback only
   ABRASION_MODERATE_THRESHOLD: 5,
   ABRASION_CRITICAL_THRESHOLD: 12,
 
@@ -87,27 +67,21 @@ const State = {
   scanProgress: 0,
   rollingCounts: [],        // Last 5 frame counts for smoothed skid/quality
   rollingAreaSeverity: [],  // Last 5 frame area-severity scores (replaces count for scoring)
-  // NEW: Cumulative trackers for the overall PDF report
-  cumulativeAreaSeverity: 0, 
+  cumulativeAreaSeverity: 0,
   totalFramesWithSeverity: 0,
-  severityHistory: [], // Stores every frame's severity for the report graph
+  severityHistory: [],
   lastAnalyzedVideoTime: -1, // video.currentTime at last API call — prevents duplicate frames
 
-// ── GPS & Detection Log ──────────────────────────────────────────────────
   gps: { lat: 18.5204, lng: 73.8567, simulated: true }, // Pune fallback until real GPS arrives
-  detectionLog: [],   // { timestamp, lat, lng, count, repairCost } — capped at 50 entries
-  
-  // ── Telemetry / CSV Data ─────────────────────────────────────────────────
+  detectionLog: [],   // { timestamp, lat, lng, count, repairCost } — capped at 50
   hasZAxisData: true,
   isLiveSensorActive: false,
   csvZData: [],
   
-  // ── Manual Validation ────────────────────────────────────────────────────
   validationFrames: [],
   validatedPotholesCount: 0,
   validatedRepairCost: 0,
   
-  // ── Tire Wear Predictive Data ──
   currentTWP: 0,
 };
 
@@ -132,12 +106,6 @@ function captureCurrentFrame() {
    3. API INTEGRATION — Roboflow
 ───────────────────────────────────────────────── */
 
-/**
- * Captures the current video frame into a Base64 image
- * and sends it to the Roboflow inference API.
- * Returns the parsed JSON response or throws on failure.
- */
-
 async function analyzeFrame() {
   const frameObj = captureCurrentFrame();
 
@@ -155,19 +123,14 @@ async function analyzeFrame() {
   return { data, frameObj };
 }
 
-/**
- * Wrapper that tries the live API and falls back to dummy data.
- * Updates State.apiConnected accordingly.
- */
 async function runAnalysis() {
-  // ── Timestamp-based skip: only analyze if video has moved ≥0.8s since last scan ──
-  // Prevents the same frozen / slow frame from being counted twice in a row.
+  // Skip if video hasn't moved ≥0.8s — prevents duplicate frame analysis.
   const video = document.getElementById('roadVideo');
   if (video && video.readyState >= 2) {
     const timeSinceLast = video.currentTime - State.lastAnalyzedVideoTime;
     if (timeSinceLast < 0.8) {
       console.log(`[TreadGuard] ⏭ Skipping — video only moved ${timeSinceLast.toFixed(2)}s (need ≥0.8s)`);
-      return;  // not enough new footage yet
+      return;
     }
     State.lastAnalyzedVideoTime = video.currentTime;
   }
@@ -181,11 +144,6 @@ async function runAnalysis() {
       const imgW = result.frameObj.width;
       const imgH = result.frameObj.height;
 
-      // ─── detect-count-and-visualize workflow actual response shape ──────────
-      // { outputs: [{ count_objects: N, output_image: { type:'base64', value:'...' } }] }
-      //   count_objects → number of potholes detected
-      //   output_image  → annotated frame with boxes already drawn by Roboflow
-      // ─────────────────────────────────────────────────────────────────────
       let count = 0;
       let predictions = [];
 
@@ -194,10 +152,8 @@ async function runAnalysis() {
       if (data.outputs && Array.isArray(data.outputs)) {
         for (const output of data.outputs) {
 
-          // ── Primary path: detect-count-and-visualize keys ──
           if (typeof output.count_objects === 'number') {
             count = output.count_objects;
-            // Read real bounding boxes if present (avoids needing annotated image)
             if (output.predictions?.predictions && Array.isArray(output.predictions.predictions)) {
               predictions = output.predictions.predictions;
             } else if (Array.isArray(output.predictions)) {
@@ -207,19 +163,16 @@ async function runAnalysis() {
             break;
           }
 
-          // ── Fallback: { predictions: { predictions:[...] } } ──
           if (output.predictions?.predictions && Array.isArray(output.predictions.predictions)) {
             predictions = output.predictions.predictions;
             count = predictions.length;
             break;
           }
-          // ── Fallback: { predictions:[...] } ──
           if (Array.isArray(output.predictions)) {
             predictions = output.predictions;
             count = predictions.length;
             break;
           }
-          // ── Fallback: bare count field ──
           if (typeof output.count === 'number') {
             count = output.count;
           }
@@ -229,7 +182,7 @@ async function runAnalysis() {
         count = predictions.length;
       }
 
-      // Synthesise placeholder boxes for counter/sparkline when we have count but no coords
+      // Synthesise placeholder boxes when count > 0 but no coordinates returned
       if (count > 0 && predictions.length === 0) {
         const cols = Math.ceil(Math.sqrt(count));
         predictions = Array.from({ length: count }, (_, i) => ({
@@ -247,8 +200,7 @@ async function runAnalysis() {
       State.framesAnalyzed++;
       updateFooterLights(true);
 
-      // ── Sync CSV Data with Video Playback ──
-      // Pulls the correct G-Force reading based on exactly how far along the video is!
+      // Sync CSV telemetry to current video position
       if (State.csvZData.length > 0) {
         const vid = document.getElementById('roadVideo');
         if (vid && vid.duration) {
@@ -259,10 +211,7 @@ async function runAnalysis() {
       }
 
     } catch (err) {
-    // Log the full error so you can debug API issues in the browser console
-    console.error('[TreadGuard] API call failed — details below:');
-    console.error('  Endpoint :', CONFIG.ROBOFLOW_ENDPOINT);
-    console.error('  Error    :', err.message || err);
+    console.error('[TreadGuard] API call failed:', CONFIG.ROBOFLOW_ENDPOINT, err.message || err);
     State.apiConnected = false;
     updateFooterLights(false);
   }
@@ -275,44 +224,30 @@ async function runAnalysis() {
    4. DETECTION DATA PROCESSOR & DOM UPDATERS
 ───────────────────────────────────────────────── */
 
-/**
- * Central function: receives count + detections,
- * updates all derived state, then refreshes every widget.
- */
-
 function processDetectionData(count, detections, base64Image = null, imgW = 640, imgH = 360) {
-  // 1. Bulletproof Confidence & Size Filter
+  // Filter: ≥65% confidence, not oversized (false-positive guard)
   const filtered = detections.filter(d => {
     const conf = d.confidence ?? 1;
     const normalizedConf = conf > 1 ? conf / 100 : conf;
-    
-    // Model space is 640px wide by 360px tall.
-    // If a bounding box covers more than 60% of the width or height, it's a false positive.
     const isTooWide = d.width > (640 * 0.60);
     const isTooTall = d.height > (360 * 0.60);
-
-    // Strict threshold: > 65% confidence AND box must be a realistic size
-    return normalizedConf >= 0.65 && !isTooWide && !isTooTall; 
+    return normalizedConf >= 0.65 && !isTooWide && !isTooTall;
   });
 
-  // NEW: Save frame for human validation (capped at 30 to save RAM)
   if (filtered.length > 0 && base64Image) {
     State.validationFrames.push({
       id: Date.now() + Math.random(),
       image: base64Image,
       width: imgW,
       height: imgH,
-      predictions: JSON.parse(JSON.stringify(filtered)) // Deep copy
+      predictions: JSON.parse(JSON.stringify(filtered))
     });
     if (State.validationFrames.length > 30) State.validationFrames.shift();
   }
 
   const currentVisibleCount = filtered.length;
 
-  // 2. The Tripwire Accumulator 
-// 2. The Dynamic Physics Tripwire (with Cooldown)
-  // Expands the zone to the entire bottom half (y > 180) so fast potholes aren't skipped.
-  // Uses a 1200ms cooldown to prevent double-counting the same pothole across frames.
+  // Tripwire accumulator — bottom-half zone (y > 180) with 1.2s cooldown to prevent double-counting
   let newPotholesCrossedLine = 0;
   const now = Date.now();
 
@@ -324,13 +259,11 @@ function processDetectionData(count, detections, base64Image = null, imgW = 640,
     }
   }
 
-  // 3. Update the global state
   const prev = State.potholeCount;
-  State.potholeCount = currentVisibleCount; 
-  State.sessionTotal += newPotholesCrossedLine; // Actually accumulates now!
+  State.potholeCount = currentVisibleCount;
+  State.sessionTotal += newPotholesCrossedLine;
   State.detections = filtered;
 
-  // 4. Update Sparkline + rolling average (last 5 frames)
   State.sparklineHistory.push(currentVisibleCount);
   if (State.sparklineHistory.length > 10) State.sparklineHistory.shift();
 
@@ -343,35 +276,26 @@ function processDetectionData(count, detections, base64Image = null, imgW = 640,
   animateScanProgress();
   driftCoordinates();
 
-  // 5. Calculate area-based repair cost for this frame's detections
-  //    calculateFrameCost() enriches each det with ._metrics (areaSqM, sizeLabel, cost)
+  // Area-based repair cost (PWD tiered rates)
   const frameCost = calculateFrameCost(filtered);
-  // Accumulate cost only when new potholes cross the tripwire line
   State.totalRepairCost += newPotholesCrossedLine > 0
     ? frameCost * (newPotholesCrossedLine / Math.max(1, filtered.length))
     : 0;
 
-  // 5b. Area-severity score for THIS frame
+  // Area-severity = total pothole area (m²) × 20; used for abrasion/skid/quality scoring
   const frameAreaSqM = filtered.reduce((sum, d) => sum + (d._metrics?.areaSqM ?? 0), 0);
   const frameAreaSeverity = frameAreaSqM * 20;
 
-  // Track every frame for the PDF timeline graph
   State.severityHistory.push(frameAreaSeverity);
-
-  // A. REAL-TIME DASHBOARD MATH (Fast 3-Frame Rolling Average)
   State.rollingAreaSeverity.push(frameAreaSeverity);
-  if (State.rollingAreaSeverity.length > 3) State.rollingAreaSeverity.shift(); // Tightened to 3 frames
+  if (State.rollingAreaSeverity.length > 3) State.rollingAreaSeverity.shift();
   const rollingSeverity = State.rollingAreaSeverity.reduce((a, b) => a + b, 0) / State.rollingAreaSeverity.length;
-  
-  // B. OVERALL SESSION MATH (Cumulative for PDF Report)
+
   State.cumulativeAreaSeverity += frameAreaSeverity;
   State.totalFramesWithSeverity++;
 
-  // 🛑 THE GHOSTING FIX (For the dashboard UI only)
   const displaySeverity = currentVisibleCount === 0 ? 0 : rollingSeverity;
 
-// 6. Log detection with current GPS for mini-map AND Report Table
-  // ONLY log if the pothole officially crossed the tripwire and was billed!
   if (newPotholesCrossedLine > 0) {
     State.detectionLog.push({
       timestamp:  Date.now(),
@@ -383,11 +307,8 @@ function processDetectionData(count, detections, base64Image = null, imgW = 640,
     if (State.detectionLog.length > 50) State.detectionLog.shift();
   }
 
-  // 7. Update UI Widgets
   updatePotholeCounter(currentVisibleCount, prev);
   updateRepairCost(Math.round(State.totalRepairCost));
-  // Skid, abrasion, quality now driven by area-severity (not raw count)
-  // so a single huge pothole scores worse than three tiny ones
   updateAbrasionIndex(rollingSeverity);
   updateSkidRisk(rollingSeverity);
   updateQualityScore(rollingSeverity);
@@ -402,12 +323,8 @@ function processDetectionData(count, detections, base64Image = null, imgW = 640,
    Converts pixel bboxes → real m² → PWD repair cost
 ───────────────────────────────────────────────── */
 
-/**
- * For a single detection bbox (in Roboflow model space, 640px wide),
- * returns { areaSqM, sizeLabel, rate, cost } using PWD tiered rates.
- */
 function calcPotholeMetrics(det) {
-  // Model space is 640 units wide = roadWidthMetres in real world
+  // 640px model width = roadWidthMetres in real world
   const mPerPx = State.roadWidthMetres / 640;
 
   const widthM  = det.width  * mPerPx;
@@ -427,10 +344,6 @@ function calcPotholeMetrics(det) {
   return { areaSqM, widthM, heightM, sizeLabel, rate, cost };
 }
 
-/**
- * Sums repair cost across all detections in the current frame.
- * Returns total ₹ for this frame and enriches each det with .metrics.
- */
 function calculateFrameCost(detections) {
   let frameCost = 0;
   detections.forEach(det => {
@@ -446,10 +359,8 @@ function updatePotholeCounter(count, prevCount) {
   const trend = document.getElementById('potholeTrend');
   const session = document.getElementById('sessionTotal');
 
-  // Animate number
   animateNumber(el, prevCount, count, 400);
 
-  // Trend indicator
   const diff = count - prevCount;
   if (diff > 0) {
     trend.textContent = `↑ +${diff}`;
@@ -477,7 +388,6 @@ function updateRepairCost(cost) {
   const pct = Math.min(100, (cost / CONFIG.MAX_COST_BAR) * 100);
   fill.style.width = `${pct}%`;
 
-  // Show per-m² context in the scale label
   const rateNote = `₹573–900/m² · PWD rate`;
   scale.textContent = `₹0 — ₹${CONFIG.MAX_COST_BAR.toLocaleString('en-IN')}  |  ${rateNote}`;
 }
@@ -491,7 +401,6 @@ function updateAbrasionIndex(count) {
   const seg1   = document.getElementById('seg1');
   const seg2   = document.getElementById('seg2');
 
-  // Reset segments
   [seg0, seg1, seg2].forEach(s => s.classList.remove('active'));
 
   if (count > CONFIG.ABRASION_CRITICAL_THRESHOLD) {
@@ -536,10 +445,7 @@ function updateSkidRisk(count) {
 
 /* ── Quality Score ── */
 function updateQualityScore(severity) {
-  // Score = 100 - (severity * 7), clamped 0–100
-  // severity = rolling avg of (total pothole area m² × 20)
-  // severity 0→100(A+),  ~2→86(A),  ~5→65(B),  ~8→44(C),  ~12→16(D),  ≥14→0(F)
-  // One L-pothole (0.56m²) → severity≈11 → D/F range — correct for a destroyed road
+  // score = 100 - (severity × 7); severity = rolling avg of (total m² × 20)
   const score = Math.max(0, 100 - severity * 7);
   const el    = document.getElementById('qualityScore');
   const grade = document.getElementById('qualityGrade');
@@ -569,10 +475,8 @@ function updateHUD(count) {
     count > 5  ? 'var(--amber)' :
                  'var(--accent)';
 
-  // FPS counter (simulated)
   document.getElementById('hudFPS').textContent = `${22 + Math.floor(Math.random() * 8)} FPS`;
 
-  // HUD timestamp
   document.getElementById('hudTimestamp').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
 }
 
@@ -582,7 +486,6 @@ function updateSparkline() {
   const history   = State.sparklineHistory;
   const max       = Math.max(...history, 1);
 
-  // Generate bars (first render creates, subsequent runs update)
   if (container.children.length !== 10) {
     container.innerHTML = '';
     for (let i = 0; i < 10; i++) {
@@ -600,33 +503,7 @@ function updateSparkline() {
   });
 }
 
-/* ─────────────────────────────────────────────────
-   5c. ANNOTATED FRAME RENDERER
-   Draws Roboflow's pre-annotated output_image directly
-   onto the HUD canvas, replacing manual bbox drawing.
-───────────────────────────────────────────────── */
-function drawAnnotatedFrame(base64) {
-  const canvas    = document.getElementById('hudCanvas');
-  const container = document.getElementById('mediaContainer');
-  canvas.width  = container.offsetWidth;
-  canvas.height = container.offsetHeight;
-  const ctx = canvas.getContext('2d');
-
-  const img = new Image();
-  img.onload = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Draw the annotated frame scaled to fill the HUD canvas
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  };
-  img.src = 'data:image/jpeg;base64,' + base64;
-}
-
-/* ─────────────────────────────────────────────────
-   5c. ANNOTATED FRAME RENDERER
-   Displays Roboflow's pre-annotated output_image
-   (bounding boxes already drawn by the workflow)
-   directly on the HUD canvas.
-───────────────────────────────────────────────── */
+/* ── Annotated Frame Renderer ── */
 function drawAnnotatedFrame(base64) {
   const canvas    = document.getElementById('hudCanvas');
   const container = document.getElementById('mediaContainer');
@@ -641,6 +518,7 @@ function drawAnnotatedFrame(base64) {
   };
   img.src = 'data:image/jpeg;base64,' + base64;
 }
+
 
 /* ─────────────────────────────────────────────────
    6. CANVAS HUD — BOUNDING BOX RENDERER
@@ -650,14 +528,12 @@ function renderDetectionBoxes(detections) {
   const container = document.getElementById('mediaContainer');
   const ctx       = canvas.getContext('2d');
 
-  // Sync canvas size to container
   canvas.width  = container.offsetWidth;
   canvas.height = container.offsetHeight;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (!detections || detections.length === 0) return;
 
-  // Scale from "model space" (640x360 assumed) to actual canvas size
   const scaleX = canvas.width  / 640;
   const scaleY = canvas.height / 360;
 
@@ -669,17 +545,14 @@ function renderDetectionBoxes(detections) {
 
     const conf = det.confidence ?? 0.85;
 
-    // Choose color by confidence
     const color = conf > 0.85 ? '#ef4444' :
                   conf > 0.70 ? '#f59e0b' : '#00e5a0';
 
     ctx.save();
 
-    // Glow shadow
     ctx.shadowColor  = color;
     ctx.shadowBlur   = 10;
 
-    // Box
     ctx.strokeStyle = color;
     ctx.lineWidth   = 1.5;
     ctx.strokeRect(x, y, w, h);
@@ -706,7 +579,6 @@ function renderDetectionBoxes(detections) {
     ctx.fillStyle = color + 'cc';
     ctx.fillRect(x, y - 16, tw + 10, 16);
 
-    // Label text
     ctx.fillStyle = '#000';
     ctx.fillText(label, x + 5, y - 4);
 
@@ -735,7 +607,6 @@ function processZAxisReading(gz) {
     State.roughnessHistory.shift();
   }
 
-  // DOM updates
   const zValueEl   = document.getElementById('zAxisValue');
   const zSignEl    = document.getElementById('zAxisSign');
   if (!zValueEl) return;
@@ -766,7 +637,6 @@ function processZAxisReading(gz) {
   updateZAxisBars(State.zAxis.history);
   drawRoughnessGraph(State.roughnessHistory);
   
-  // NEW: Update Tire Wear Prediction using latest Z-Axis data
   updateTireWearModel();
 
 }
@@ -781,13 +651,11 @@ function updateTireWearModel() {
   const paxCount = parseInt(paxEl.value) || 1;
   const totalMass = baseWeight + (paxCount * 68); // 68kg avg human weight
 
-  // Grab active telemetry
   const avgG = State.zAxis.readings.length > 0 
     ? State.zAxis.readings.reduce((a, b) => a + b, 0) / State.zAxis.readings.length 
     : 0;
   const events = State.zAxis.events;
 
-  // TWP Formula
   const baseFriction = 0.067; // mg/km per kg of mass
   const roughnessMultiplier = 1 + (avgG * 1.5);
   const impactMultiplier = 1 + (events * 0.02);
@@ -795,10 +663,8 @@ function updateTireWearModel() {
   const rawEmission = totalMass * baseFriction * roughnessMultiplier * impactMultiplier;
   State.currentTWP = parseFloat(rawEmission.toFixed(2));
 
-  // Update UI and color code
   valEl.textContent = State.currentTWP.toFixed(2);
   
-  // Thresholds based on vehicle type to keep colors accurate
   const isHeavy = baseWeight > 2000;
   const critLimit = isHeavy ? 600 : 250;
   const warnLimit = isHeavy ? 450 : 150;
@@ -928,7 +794,6 @@ function drawRoughnessGraph(data) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
 
-  // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -943,12 +808,10 @@ function drawRoughnessGraph(data) {
   const max = 1.2;
   const stepX = W / (data.length - 1);
 
-  // Gradient fill
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, 'rgba(0, 210, 106, 0.65)'); // Much stronger top color
   grad.addColorStop(1, 'rgba(0, 210, 106, 0.05)'); // Leaves a subtle base tint
 
-  // Draw filled area
   ctx.beginPath();
   data.forEach((val, i) => {
     const x = i * stepX;
@@ -961,12 +824,11 @@ function drawRoughnessGraph(data) {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Draw line
   ctx.beginPath();
   ctx.strokeStyle = 'var(--accent)';
-  ctx.lineWidth   = 2.5; // Thicker, bolder line
+  ctx.lineWidth   = 2.5;
   ctx.shadowColor = 'var(--accent)';
-  ctx.shadowBlur  = 12;  // Increased neon glow effect
+  ctx.shadowBlur  = 12;
   data.forEach((val, i) => {
     const x = i * stepX;
     const y = H - (Math.min(val, max) / max) * H * 0.92;
@@ -985,7 +847,6 @@ function drawRoughnessGraph(data) {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Threshold label
   ctx.font      = '7px "Space Mono", monospace';
   ctx.fillStyle = 'rgba(245,158,11,0.5)';
   ctx.fillText('0.5G THRESHOLD', 4, threshY - 3);
@@ -1011,7 +872,6 @@ function drawSkidGauge(count) {
   const endAngle   = 2 * Math.PI;
   const totalArc   = Math.PI;
 
-  // Background track
   ctx.beginPath();
   ctx.arc(cx, cy, r, startAngle, endAngle);
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -1019,7 +879,6 @@ function drawSkidGauge(count) {
   ctx.lineCap     = 'round';
   ctx.stroke();
 
-  // Color zones (safe, caution, hazard)
   const zones = [
     { from: 0,    to: 0.33, color: '#00e5a0' },
     { from: 0.33, to: 0.66, color: '#f59e0b' },
@@ -1034,7 +893,6 @@ function drawSkidGauge(count) {
     ctx.stroke();
   });
 
-  // Active needle value (count mapped 0-12 → 0-1, 12+ potholes = full hazard)
   const value   = Math.min(1, count / 12);
   const fillEnd = startAngle + value * totalArc;
 
@@ -1051,7 +909,6 @@ function drawSkidGauge(count) {
   ctx.stroke();
   ctx.shadowBlur  = 0;
 
-  // Needle dot
   const needleAngle = startAngle + value * totalArc;
   const nx = cx + (r) * Math.cos(needleAngle);
   const ny = cy + (r) * Math.sin(needleAngle);
@@ -1063,7 +920,6 @@ function drawSkidGauge(count) {
   ctx.fill();
   ctx.shadowBlur  = 0;
 
-  // Center label: percentage
   ctx.font      = 'bold 11px "Space Mono", monospace';
   ctx.fillStyle = fillColor;
   ctx.textAlign = 'center';
@@ -1091,14 +947,12 @@ function drawQualityRing(score) {
   const lw = 8;
   const pct = score / 100;
 
-  // Background ring
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = lw;
   ctx.stroke();
 
-  // Score arc
   const color = score >= 75 ? '#00e5a0' :
                 score >= 45 ? '#f59e0b' : '#ef4444';
 
@@ -1117,10 +971,7 @@ function drawQualityRing(score) {
    HELPERS
 ───────────────────────────────────────────────── */
 
-/**
- * Smoothly animates a numeric DOM element from `from` to `to`.
- * If `currency` is true, formats with Indian locale commas.
- */
+/** Smoothly animate a number in a DOM element; currency=true uses Indian locale */
 function animateNumber(el, from, to, duration = 400, currency = false) {
   const start   = performance.now();
   const diff    = to - from;
@@ -1143,7 +994,7 @@ function animateNumber(el, from, to, duration = 400, currency = false) {
   requestAnimationFrame(tick);
 }
 
-/** Flash a card's background briefly to indicate data update */
+/** Flash card background on data update */
 function flashCard(id) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1152,10 +1003,8 @@ function flashCard(id) {
   el.classList.add('card-flash');
 }
 
-/** Animate the scan progress bar */
 function animateScanProgress() {
   const fill = document.getElementById('scanProgress');
-  // Quick sweep: 0 → random 70-100% → back to 0
   fill.style.width = '0%';
   setTimeout(() => {
     fill.style.width = `${70 + Math.random() * 30}%`;
@@ -1168,7 +1017,7 @@ function animateScanProgress() {
   }, 1000);
 }
 
-/** Slightly drift GPS coordinates for realism */
+/** Slightly drift GPS coordinates */
 function driftCoordinates() {
   const latBase = 18.5204, lngBase = 73.8567;
   const lat = (latBase + (Math.random() - 0.5) * 0.002).toFixed(4);
@@ -1177,14 +1026,12 @@ function driftCoordinates() {
   document.getElementById('hudLng').textContent  = `LNG ${lng}°E`;
 }
 
-/** Toggle the scan status indicator */
 function setScanBusy(busy) {
   const el = document.getElementById('scanStatusText');
   el.textContent = busy ? 'SCANNING FRAME…' : 'FRAME PROCESSED ✓';
   if (!busy) setTimeout(() => { el.textContent = 'SCANNING FRAME…'; }, 800);
 }
 
-/** Update the footer indicator lights */
 function updateFooterLights(apiOk) {
   const flApi = document.getElementById('flApi');
   flApi.style.background = apiOk ? 'var(--accent)' : 'var(--red)';
@@ -1198,14 +1045,11 @@ function initUploadHandler() {
   const confirm = document.getElementById('modalConfirm');
   const close   = document.getElementById('modalClose');
 
-  // Wire modal actions: confirm begins analysis, close hides modal
   if (confirm) {
     confirm.addEventListener('click', (ev) => {
       modal.hidden = true;
-      // Prefer toggling the main Analyze button so the UI reflects auto-scan state
       const analyzeBtnEl = document.getElementById('analyzeBtn');
       if (analyzeBtnEl) {
-        // If the button shows "Start", click it to start auto-scan; otherwise run a single analysis
         if (/Start/i.test(analyzeBtnEl.innerText)) analyzeBtnEl.click();
         else runAnalysis();
       } else {
@@ -1221,19 +1065,12 @@ function initUploadHandler() {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    /* ─────────────────────────────────────────────────
-       BUG FIX: WIPE STATE ON NEW UPLOAD
-    ───────────────────────────────────────────────── */
-    // 1. Force stop the AI scanner if it's currently running
+    // Stop scanner and reset state on new upload
     const analyzeBtn = document.getElementById('analyzeBtn');
-    if (analyzeBtn && analyzeBtn.innerText.includes('Stop')) {
-      analyzeBtn.click(); 
-    }
+    if (analyzeBtn && analyzeBtn.innerText.includes('Stop')) analyzeBtn.click();
 
-    // 2. Trigger the invisible reset button to wipe all old data, graphs, and timestamps
     const resetBtn = document.getElementById('resetBtn');
     if (resetBtn) resetBtn.click();
-    /* ───────────────────────────────────────────────── */
 
     // Separate media from CSV
     const mediaFile = files.find(f => f.type.startsWith('video/') || f.type.startsWith('image/'));
@@ -1260,8 +1097,7 @@ function initUploadHandler() {
       State.csvZData = [];
       let zIndex = -1;
       
-      // Auto-find Z column header, fallback to last column
-      // 1. Skip metadata comments (like "# Target Sample Rate: 200 Hz")
+      // Skip metadata comment lines, find header row
       let headerIdx = 0;
       while (headerIdx < lines.length && lines[headerIdx].trim().startsWith('#')) {
         headerIdx++;
@@ -1271,7 +1107,7 @@ function initUploadHandler() {
         const headers = lines[headerIdx].toLowerCase().split(',');
         let isTotalG = false;
 
-        // 2. Look for "TgF" (Total G-Force) first, then fallback to Z-axis
+        // Prefer TgF (Total G-Force) column, fall back to Z-axis
         for (let i = 0; i < headers.length; i++) {
           if (headers[i].includes('tgf') || headers[i].includes('total')) {
             zIndex = i;
@@ -1286,21 +1122,18 @@ function initUploadHandler() {
         }
         if (zIndex === -1) zIndex = headers.length - 1; 
         
-        // 3. Parse Data and Calibrate Gravity
         for (let i = headerIdx + 1; i < lines.length; i++) {
           const cols = lines[i].split(',');
           if (cols.length > zIndex) {
             let val = parseFloat(cols[zIndex]);
             if (!isNaN(val)) {
-              // If we use Total G, subtract 1G (baseline gravity) so flat roads = 0.00G
-              if (isTotalG) val = val - 1.0;
+              if (isTotalG) val = val - 1.0; // subtract baseline gravity
               State.csvZData.push(val);
             }
           }
         }
       }
       
-      // Reset peak when a new CSV is loaded
       State.zAxis.peak = 0;
       descText += `\nTelemetry CSV synced (${State.csvZData.length} records).`;
       State.hasZAxisData = true;
@@ -1308,7 +1141,6 @@ function initUploadHandler() {
       document.getElementById('flSensor').style.background = 'var(--accent)';
       document.querySelector('.sensor-dot').className = 'sensor-dot sensor-dot--active';
     } else if (mediaFile) {
-      // User uploaded video but NO CSV. Safely kill the simulator!
       State.csvZData = [];
       if (!State.isLiveSensorActive) {
         State.hasZAxisData = false;
@@ -1318,7 +1150,6 @@ function initUploadHandler() {
 
     desc.textContent = descText || "Ready for analysis.";
     modal.hidden = false;
-    // Reset the input so it detects future uploads perfectly
     e.target.value = '';
   });
 
@@ -1338,7 +1169,6 @@ function generateReport() {
   const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
   const s = String(elapsed % 60).padStart(2, '0');
   
-  // 1. Calculate OVERALL Route Scores (ignoring real-time dashboard state)
   const overallSeverity = State.totalFramesWithSeverity > 0 
     ? (State.cumulativeAreaSeverity / State.totalFramesWithSeverity) : 0;
     
@@ -1355,7 +1185,6 @@ function generateReport() {
   if (overallSeverity > CONFIG.ABRASION_CRITICAL_THRESHOLD) overallAbrasion = 'CRITICAL';
   else if (overallSeverity > CONFIG.ABRASION_MODERATE_THRESHOLD) overallAbrasion = 'MODERATE';
   
-  // 2. Generate Top Events Table
   const topEvents = [...State.detectionLog].sort((a, b) => b.repairCost - a.repairCost).slice(0, 5);
   let tableHtml = '';
   if (topEvents.length > 0) {
@@ -1376,8 +1205,7 @@ function generateReport() {
     tableHtml = '<p>No defect events logged during this session.</p>';
   }
 
-  // 3. Generate Timeline Graph (Sub-sampled for clean rendering)
-  const maxBars = 150; // Keep the graph from getting too squished on long drives
+  const maxBars = 150; // subsample to avoid squished bars on long sessions
   const step = Math.max(1, Math.floor(State.severityHistory.length / maxBars));
   const sampledHistory = State.severityHistory.filter((_, i) => i % step === 0);
   const maxSev = Math.max(...sampledHistory, 15); // Baseline scale
@@ -1386,7 +1214,7 @@ function generateReport() {
     <h3 style="margin-top: 30px;">Route Severity Timeline</h3>
     <div style="display: flex; align-items: flex-end; height: 120px; gap: 2px; border-bottom: 2px solid #ddd; padding-bottom: 5px; margin-bottom: 30px;">
       ${sampledHistory.map(sev => {
-        const heightPct = Math.max(2, Math.min(100, (sev / maxSev) * 100)); // Minimum 2% height for flat roads
+        const heightPct = Math.max(2, Math.min(100, (sev / maxSev) * 100));
         const color = sev > CONFIG.ABRASION_CRITICAL_THRESHOLD ? '#ef4444' : 
                      (sev > CONFIG.ABRASION_MODERATE_THRESHOLD ? '#f59e0b' : '#00e5a0');
         return `<div style="flex: 1; background-color: ${color}; height: ${heightPct}%; border-radius: 2px 2px 0 0;"></div>`;
@@ -1394,7 +1222,6 @@ function generateReport() {
     </div>
   `;
 
-  // 4. Build the HTML Document
   const html = `
     <!DOCTYPE html>
     <html>
@@ -1447,20 +1274,16 @@ function generateManualReport() {
   const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
   const s = String(elapsed % 60).padStart(2, '0');
 
-  // 1. Extract Validated Data for Table & Graph
   let manualEvents = [];
   let manualSeverityTimeline = [];
 
   State.validationFrames.forEach(frame => {
-    // Filter to ONLY include the boxes the human ticked "✓"
     const validPreds = frame.predictions.filter(p => p._status === 'validated');
     
-    // Graph Severity Math (Based only on certified area)
     const frameAreaSqM = validPreds.reduce((sum, p) => sum + (p._metrics?.areaSqM ?? 0), 0);
     const frameSeverity = frameAreaSqM * 20;
     manualSeverityTimeline.push(frameSeverity);
 
-    // Table Event Math (Log the location if potholes were certified)
     if (validPreds.length > 0) {
       const frameCost = validPreds.reduce((sum, p) => sum + (p._metrics?.cost ?? 0), 0);
       manualEvents.push({
@@ -1637,36 +1460,19 @@ function generateAbrasionReport() {
   openHtmlForPrint(html, 'TreadGuard_Report.html');
 }
 
-/**
- * Opens HTML in a new window and attempts to call print() asynchronously.
- * If popups are blocked, falls back to downloading the HTML file.
- */
-/**
- * Opens HTML in a new window using a detached Blob URL.
- * This prevents the Print dialog from freezing the main dashboard thread.
- */
-/**
- * Opens HTML in a new window using a detached Blob URL.
- * This prevents the Print dialog from freezing the main dashboard thread.
- */
 function openHtmlForPrint(html, filename = 'report.html') {
   try {
-    // 1. Inject UTF-8 encoding so special symbols (—, ₹) render correctly
     let finalHtml = html.replace('<head>', '<head>\n      <meta charset="UTF-8">');
 
-    // 2. Inject an auto-print script directly into the HTML string safely
     const printScript = `<script>window.onload = () => { setTimeout(() => window.print(), 500); };</script></body>`;
     finalHtml = finalHtml.replace('</body>', printScript);
 
-    // 3. Convert to a standalone Blob with explicit UTF-8 charset
     const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
 
-    // 4. Open the detached URL
     const win = window.open(url, '_blank');
 
     if (!win) {
-      // Popup blocked — fallback to direct file download
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
@@ -1675,8 +1481,7 @@ function openHtmlForPrint(html, filename = 'report.html') {
       a.remove();
     }
 
-    // 5. Clean up the URL memory after a minute (This does NOT close the tab!)
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000); // release blob memory after 1min
 
   } catch (err) {
     console.error('[TreadGuard] openHtmlForPrint failed', err);
@@ -1691,7 +1496,6 @@ function initControls() {
   const analyzeBtn = document.getElementById('analyzeBtn');
   const video = document.getElementById('roadVideo');
 
-  // Helper: read vehicle speed (km/h) from UI and clamp to reasonable range
   function getVehicleSpeedKmph() {
     const el = document.getElementById('vehicleSpeedKmph');
     if (!el) return 30;
@@ -1700,7 +1504,6 @@ function initControls() {
     return Math.min(200, Math.max(1, v));
   }
 
-  // Helper: read road width (metres) from UI, validate and clamp, fallback to 3.5
   function getRoadWidthMetres() {
     const el = document.getElementById('roadWidthMetres');
     if (!el) return State.roadWidthMetres || 3.5;
@@ -1710,16 +1513,13 @@ function initControls() {
     return Math.min(12, Math.max(1, v));
   }
 
-  // Compute adaptive delay (ms) based on vehicle speed and detections' Y position.
-  // Idea: estimate time until the nearest detected pothole reaches the tripwire (y=250),
-  // then schedule the next capture to sample shortly before that moment. This avoids
-  // repeated detections (ghosting) while not skipping approaching potholes.
+  // Adaptive delay: estimates time until nearest pothole reaches the tripwire,
+  // then schedules the next capture just before that moment.
   function computeAdaptiveDelay(speedKmph, detections = []) {
     const minMs = 300;
     const maxMs = 2500;
     const defaultMs = 500;
 
-    // If no detections, scale delay modestly with speed (faster -> slightly more frequent sampling)
     if (!detections || detections.length === 0) {
       const scaled = Math.round(Math.max(minMs, defaultMs - (speedKmph * 4)));
       return Math.min(maxMs, Math.max(minMs, scaled));
@@ -1735,7 +1535,6 @@ function initControls() {
       const distancePx = tripwireY - (det.y ?? 0);
 
       if (distancePx <= 0) {
-        // Already at or past tripwire — keep a short pause to avoid immediate repeats
         bestMs = Math.min(bestMs, 900);
         continue;
       }
@@ -1743,18 +1542,15 @@ function initControls() {
       const distanceM = distancePx * mPerPx;
       const timeS = distanceM / speedMps; // seconds until it crosses tripwire
 
-      // Sample at ~60% of the remaining time so we capture the approach without repeating
-      const desiredMs = Math.round(timeS * 1000 * 0.6);
+      const desiredMs = Math.round(timeS * 1000 * 0.6); // sample at ~60% of approach time
       if (desiredMs > 0) bestMs = Math.min(bestMs, desiredMs);
     }
 
-    // Fallback clamp
     bestMs = Math.min(maxMs, Math.max(minMs, bestMs));
     return bestMs;
   }
 
 
-  // ── Helper: cleanly stop the scan loop ───────────────────────────────
   function stopScanning() {
     isScanning = false;
     clearInterval(scanInterval);
@@ -1765,11 +1561,9 @@ function initControls() {
     analyzeBtn.style.color = 'var(--text-secondary)';
   }
 
-  // Initialize road width input and attach change handler
   (function initRoadWidthInput() {
     const el = document.getElementById('roadWidthMetres');
     if (!el) return;
-    // Ensure UI shows current state on load
     el.value = State.roadWidthMetres || 3.5;
     el.addEventListener('change', () => {
       const w = getRoadWidthMetres();
@@ -1778,33 +1572,25 @@ function initControls() {
     });
   })();
 
-  // ── NEW: Tire Wear Input Listeners ──
   const vehInput = document.getElementById('twVehicleType');
   const paxInput = document.getElementById('twPax');
   if (vehInput) vehInput.addEventListener('change', updateTireWearModel);
   if (paxInput) paxInput.addEventListener('input', updateTireWearModel);
 
-// ── Auto-stop & Trigger Human-AI Handoff ──────────────────────────────
   video.addEventListener('ended', () => {
     if (isScanning) {
       stopScanning();
       document.getElementById('scanStatusText').textContent = 'AWAITING HUMAN AUDIT ✓';
-      document.getElementById('scanStatusText').style.color = '#3b82f6'; // Blue for human cert
-      
-      console.log('[TreadGuard] AI Scan complete. Handoff to human operator.');
+      document.getElementById('scanStatusText').style.color = '#3b82f6';
+      console.log('[TreadGuard] AI scan complete.');
 
-      // ── THE HERO TRANSITION ──
-      // Automatically open and scroll to the Validation Dashboard!
       const validationDashboard = document.getElementById('validationDashboard');
       if (validationDashboard && State.validationFrames.length > 0) {
         validationDashboard.style.display = 'block';
         renderValidationFrames();
         
-        // Slight delay to let the DOM render, then smooth scroll down
         setTimeout(() => {
           validationDashboard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          
-          // Flash the dashboard blue to draw the judges' eyes immediately
           validationDashboard.style.transition = 'box-shadow 0.6s ease-out';
           validationDashboard.style.boxShadow = '0 0 40px rgba(59, 130, 246, 0.4)';
           setTimeout(() => { validationDashboard.style.boxShadow = 'none'; }, 1500);
@@ -1821,7 +1607,6 @@ function initControls() {
       e.target.style.background = 'var(--red)';
       e.target.style.color = '#fff';
 
-      // Ensure the video plays when scanning starts
       try {
         if (video && video.src) {
           const playPromise = video.play();
@@ -1833,13 +1618,11 @@ function initControls() {
         console.warn('[TreadGuard] Error attempting to play video:', err);
       }
 
-      // Run once immediately, then schedule subsequent captures adaptively
       let prevDelay = 500;
 
       async function scheduleNext() {
         const speed = getVehicleSpeedKmph();
         const delay = computeAdaptiveDelay(speed, State.detections) || 500;
-        // Smooth small jitter between delays
         const smoothed = Math.round(prevDelay * 0.6 + delay * 0.4);
         prevDelay = smoothed;
 
@@ -1871,7 +1654,6 @@ function initControls() {
     State.zAxis.readings = [];
     State.roughnessHistory = new Array(CONFIG.GRAPH_HISTORY_POINTS).fill(0);
     
-    // Clear Validation Board
     State.validationFrames = [];
     State.validatedPotholesCount = 0;
     State.validatedRepairCost = 0;
@@ -1915,7 +1697,6 @@ processDetectionData(0, []);
       validationDashboard.style.display = isHidden ? 'block' : 'none';
       
       if (isHidden) {
-        // Auto-pause scanning so the user can focus
         if (isScanning) analyzeBtn.click(); 
         
         renderValidationFrames();
@@ -2099,17 +1880,14 @@ function drawMiniMap() {
   const ctx = canvas.getContext('2d');
   const log = State.detectionLog;
 
-  // ── Background ──
   ctx.fillStyle = '#080c10';
   ctx.fillRect(0, 0, W, H);
 
-  // ── Subtle grid ──
   ctx.strokeStyle = 'rgba(0,229,160,0.05)';
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
   for (let y = 0; y < H; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-  // ── Empty state ──
   if (log.length < 2) {
     ctx.font = '600 10px "Space Mono", monospace';
     ctx.fillStyle = 'rgba(0,229,160,0.28)';
@@ -2122,12 +1900,11 @@ function drawMiniMap() {
     return;
   }
 
-  // ── Compute bounding box ──
   const lats   = log.map(e => e.lat);
   const lngs   = log.map(e => e.lng);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  // Guard against all-same coords (e.g. simulated GPS)
+  // guard against all-same coords (simulated GPS)
   const latRange = maxLat - minLat || 0.001;
   const lngRange = maxLng - minLng || 0.001;
 
@@ -2135,7 +1912,6 @@ function drawMiniMap() {
   const mapW = W - PAD * 2;
   const mapH = H - PAD * 2 - 18; // reserve bottom 18px for legend
 
-  // ── Path connecting dots ──
   ctx.strokeStyle = 'rgba(0,229,160,0.12)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -2146,7 +1922,6 @@ function drawMiniMap() {
   });
   ctx.stroke();
 
-  // ── Dots ──
   log.forEach((e, i) => {
     const x = PAD + ((e.lng - minLng) / lngRange) * mapW;
     const y = PAD + (1 - (e.lat - minLat) / latRange) * mapH;
@@ -2155,13 +1930,11 @@ function drawMiniMap() {
                 : e.count >= 3 ? '#f59e0b'
                 :                '#00e5a0';
 
-    // Glow halo
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI * 2);
     ctx.fillStyle = color + '22';
     ctx.fill();
 
-    // Core dot
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fillStyle = color + '99';
@@ -2180,7 +1953,6 @@ function drawMiniMap() {
     }
   });
 
-  // ── Legend (bottom strip) ──
   const legendY = H - 7;
   ctx.font = '500 8px "Space Mono", monospace';
   ctx.textAlign = 'left';
@@ -2201,13 +1973,8 @@ function drawMiniMap() {
 }
 
 /* ─────────────────────────────────────────────────
-   14. INITIALIZER (formerly 13)
+   14. INITIALIZER
 ───────────────────────────────────────────────── */
-
-/**
- * Draws a clean dark placeholder on the road background canvas.
- * Shown before any footage is uploaded — replaces the fake road/lines.
- */
 function drawPlaceholder() {
   const canvas    = document.getElementById('roadBgCanvas');
   const container = document.getElementById('mediaContainer');
@@ -2219,11 +1986,9 @@ function drawPlaceholder() {
   const H = canvas.height;
   const ctx = canvas.getContext('2d');
 
-  // Dark background
   ctx.fillStyle = '#0d0d0d';
   ctx.fillRect(0, 0, W, H);
 
-  // Subtle grid
   ctx.strokeStyle = 'rgba(0,229,160,0.04)';
   ctx.lineWidth = 1;
   const step = 40;
@@ -2234,7 +1999,6 @@ function drawPlaceholder() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
 
-  // Centre upload icon (arrow-up in a circle)
   const cx = W / 2, cy = H / 2 - 18;
   const r = 36;
   ctx.strokeStyle = 'rgba(0,229,160,0.25)';
@@ -2243,7 +2007,6 @@ function drawPlaceholder() {
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Arrow up
   ctx.strokeStyle = 'rgba(0,229,160,0.55)';
   ctx.lineWidth = 2;
   ctx.lineCap = 'round';
@@ -2253,45 +2016,35 @@ function drawPlaceholder() {
   ctx.moveTo(cx + 10, cy - 4); ctx.lineTo(cx, cy - 14);      // right wing
   ctx.stroke();
 
-  // Label
   ctx.font = '600 11px "Space Mono", monospace';
   ctx.fillStyle = 'rgba(0,229,160,0.35)';
   ctx.textAlign = 'center';
   ctx.fillText('UPLOAD FOOTAGE TO BEGIN', cx, cy + r + 22);
 
-  ctx.textAlign = 'left'; // reset
+  ctx.textAlign = 'left';
 }
 
 function init() {
   console.log('%c[TreadGuard CV] Initializing…', 'color:#00e5a0; font-weight:bold;');
 
-  // Draw placeholder until footage is uploaded
   drawPlaceholder();
 
-  // Build Z-axis bar visualizer DOM
   buildZAxisBars();
 
-  // Draw initial empty charts
   drawQualityRing(100);
   drawSkidGauge(0);
   drawRoughnessGraph(State.roughnessHistory);
 
-  // Wire up upload handler
   initUploadHandler();
 
-  // Wire up buttons + demo toggle
   initControls();
 
-  // Start session clock
   startSessionClock();
 
-  // Start GPS watcher (real or fallback)
   initGPS();
 
-  // Start Z-axis sensor (real or simulated)
   initZAxisSensor();
 
-  // Resize canvas on window resize
   window.addEventListener('resize', () => {
     const vid = document.getElementById('roadVideo');
     const hasVideo = vid.src && vid.readyState >= 1;
@@ -2300,16 +2053,13 @@ function init() {
     drawRoughnessGraph(State.roughnessHistory);
   });
 
-  // Warm-up: draw empty mini-map placeholder
   drawMiniMap();
 
-  // Warm-up animation: feed initial zero state
   processDetectionData(0, []);
 
   console.log('%c[TreadGuard CV] Ready ✓', 'color:#00e5a0; font-weight:bold;');
 }
 
-// Boot when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
