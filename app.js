@@ -83,22 +83,30 @@ const State = {
   validatedRepairCost: 0,
   
   currentTWP: 0,
+  currentFrameW: 640,
+  currentFrameH: 360,
 };
 
 function captureCurrentFrame() {
   const video = document.getElementById('roadVideo');
   const offscreen = document.createElement('canvas');
-  const w = video.videoWidth || 640;
-  const h = video.videoHeight || 360;
-  offscreen.width = w;
-  offscreen.height = h;
+  
+  const origW = video.videoWidth || 640;
+  const origH = video.videoHeight || 360;
+  
+  // Force downscale to 640px to prevent AI hallucinations & speed up API
+  const targetW = 640;
+  const targetH = Math.round((origH / origW) * targetW);
+
+  offscreen.width = targetW;
+  offscreen.height = targetH;
   const ctx = offscreen.getContext('2d');
-  ctx.drawImage(video, 0, 0, w, h);
+  ctx.drawImage(video, 0, 0, targetW, targetH);
   
   return {
     base64: offscreen.toDataURL('image/jpeg', 0.8).split(',')[1],
-    width: w,
-    height: h
+    width: targetW,
+    height: targetH
   };
 }
 
@@ -225,13 +233,22 @@ async function runAnalysis() {
 ───────────────────────────────────────────────── */
 
 function processDetectionData(count, detections, base64Image = null, imgW = 640, imgH = 360) {
-  // Filter: ≥65% confidence, not oversized (false-positive guard)
+  State.currentFrameW = imgW;
+  State.currentFrameH = imgH;
+
+  // Filter: ≥65% confidence, not oversized, AND within Region of Interest (ROI)
   const filtered = detections.filter(d => {
     const conf = d.confidence ?? 1;
     const normalizedConf = conf > 1 ? conf / 100 : conf;
-    const isTooWide = d.width > (640 * 0.60);
-    const isTooTall = d.height > (360 * 0.60);
-    return normalizedConf >= 0.65 && !isTooWide && !isTooTall;
+    
+    // Use dynamic frame sizes from our previous fix
+    const isTooWide = d.width > (imgW * 0.60);
+    const isTooTall = d.height > (imgH * 0.60);
+    
+    // ROI MASK: Ignore the top 40% of the frame (sky, horizon, distant cars)
+    const isBelowHorizon = d.y > (imgH * 0.40);
+
+    return normalizedConf >= 0.65 && !isTooWide && !isTooTall && isBelowHorizon;
   });
 
   if (filtered.length > 0 && base64Image) {
@@ -534,8 +551,12 @@ function renderDetectionBoxes(detections) {
 
   if (!detections || detections.length === 0) return;
 
-  const scaleX = canvas.width  / 640;
-  const scaleY = canvas.height / 360;
+  // Dynamically scale based on what was actually sent to the AI
+  const fw = State.currentFrameW || 640;
+  const fh = State.currentFrameH || 360;
+
+  const scaleX = canvas.width  / fw;
+  const scaleY = canvas.height / fh;
 
   detections.forEach((det, i) => {
     const x = (det.x - det.width / 2)  * scaleX;
@@ -600,7 +621,7 @@ function processZAxisReading(gz) {
   if (State.zAxis.readings.length > 60) State.zAxis.readings.shift();
 
   if (absGz > Math.abs(State.zAxis.peak)) State.zAxis.peak = gz;
-  
+
 /* ── Hardware Debounce Fix ── */
   if (absGz > 0.5) {
     const now = Date.now();
