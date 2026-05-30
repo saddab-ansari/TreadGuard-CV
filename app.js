@@ -6,16 +6,15 @@
    1. Configuration & Constants
    2. State Management
    3. API Integration (Roboflow)
-   4. Dummy Data Fallback Engine
-   5. DOM Update Functions
-   6. Canvas HUD Renderer
-   7. Z-Axis Sensor (DeviceMotion)
-   8. Roughness Waveform Graph
-   9. Skid Gauge (Canvas)
-   10. Quality Ring (Canvas)
-   11. Upload Handler
-   12. UI Controls & Clock
-   13. Initializer
+   4. Detection Data Processor & DOM Updaters
+   5. Canvas HUD Renderer
+   6. Z-Axis Sensor (DeviceMotion)
+   7. Roughness Waveform Graph
+   8. Skid Gauge (Canvas)
+   9. Quality Ring (Canvas)
+   10. Upload Handler
+   11. UI Controls & Clock
+   12. Initializer
 ═══════════════════════════════════════════════════ */
 
 'use strict';
@@ -54,30 +53,16 @@ const CONFIG = {
   ABRASION_MODERATE_THRESHOLD: 5,
   ABRASION_CRITICAL_THRESHOLD: 12,
 
-  DUMMY_UPDATE_INTERVAL_MS: 2000,   // How fast demo data refreshes
   GRAPH_HISTORY_POINTS: 60,         // Points in waveform graph
   ZBAR_COUNT: 28,                   // Bars in Z-axis visualizer
   MAX_COST_BAR: 50000,              // Max value for cost bar (100%)
 };
 
-/* ─────────────────────────────────────────────────
-   POTHOLE POSITIONS  (model-space: 640 × 360)
-   These fixed coords match the potholes drawn by
-   drawRoadScene() so detection boxes land on them.
-───────────────────────────────────────────────── */
-const POTHOLE_POSITIONS = [
-  { x: 155, y: 190, width: 82,  height: 52 },  // left lane, shallow
-  { x: 460, y: 258, width: 96,  height: 62 },  // right lane, mid-depth
-  { x: 215, y: 315, width: 72,  height: 46 },  // left lane, lower frame
-  { x: 528, y: 162, width: 66,  height: 44 },  // right lane, far
-  { x: 385, y: 305, width: 90,  height: 56 },  // center-right, lower
-];
 
 /* ─────────────────────────────────────────────────
    2. STATE MANAGEMENT
 ───────────────────────────────────────────────── */
 const State = {
-  isDemoMode: false,          // Start in demo mode (safe fallback)
   potholeCount: 0,
   sessionTotal: 0,
   totalRepairCost: 0,         // Cumulative area-based repair cost (₹)
@@ -97,7 +82,6 @@ const State = {
   roughnessHistory: new Array(CONFIG.GRAPH_HISTORY_POINTS).fill(0),
 
   sessionStartTime: Date.now(),
-  demoInterval: null,
   apiConnected: false,
 
   scanProgress: 0,
@@ -191,8 +175,7 @@ async function runAnalysis() {
   setScanBusy(true);
 
   try {
-    if (!State.isDemoMode) {
-      const result = await analyzeFrame();
+    const result = await analyzeFrame();
       const data = result.data;
       const base64Image = result.frameObj.base64;
       const imgW = result.frameObj.width;
@@ -275,19 +258,13 @@ async function runAnalysis() {
         }
       }
 
-    } else {
-      // Demo / fallback mode
-      injectDummyData();
-    }
-  } catch (err) {
+    } catch (err) {
     // Log the full error so you can debug API issues in the browser console
     console.error('[TreadGuard] API call failed — details below:');
     console.error('  Endpoint :', CONFIG.ROBOFLOW_ENDPOINT);
     console.error('  Error    :', err.message || err);
-    console.warn('[TreadGuard] Falling back to demo data for this frame.');
     State.apiConnected = false;
     updateFooterLights(false);
-    injectDummyData();
   }
 
   setScanBusy(false);
@@ -295,51 +272,7 @@ async function runAnalysis() {
 }
 
 /* ─────────────────────────────────────────────────
-   4. DUMMY DATA FALLBACK ENGINE
-───────────────────────────────────────────────── */
-
-/**
- * Generates realistic dummy detection data and feeds it
- * into the same processing pipeline as real API data.
- * This runs every 2s in demo mode to keep the UI alive.
- */
-function injectDummyData() {
-  // Each pothole gets a fresh confidence score every tick.
-  // Some will be below the 50 % threshold (noise / trees) and won't be counted.
-  const fakeDetections = POTHOLE_POSITIONS.map((pos, i) => ({
-    x:          pos.x + (Math.random() - 0.5) * 8,
-    y:          pos.y + (Math.random() - 0.5) * 6,
-    width:      pos.width  + (Math.random() - 0.5) * 10,
-    height:     pos.height + (Math.random() - 0.5) * 8,
-    confidence: 0.36 + Math.random() * 0.62,  // 0.36 – 0.98 (may dip below 0.50)
-    class: 'pothole',
-    id: i,
-  }));
-  
-  const frameObj = captureCurrentFrame();
-  processDetectionData(fakeDetections.length, fakeDetections, frameObj.base64, frameObj.width, frameObj.height);
-  State.framesAnalyzed++;
-}
-
-/**
- * Starts the repeating dummy data interval.
- */
-function startDemoMode() {
-  clearInterval(State.demoInterval);
-  State.demoInterval = setInterval(() => {
-    if (State.isDemoMode) injectDummyData();
-  }, CONFIG.DUMMY_UPDATE_INTERVAL_MS);
-}
-
-/**
- * Stops the demo interval (when switching to live mode).
- */
-function stopDemoMode() {
-  clearInterval(State.demoInterval);
-}
-
-/* ─────────────────────────────────────────────────
-   5. DETECTION DATA PROCESSOR & DOM UPDATERS
+   4. DETECTION DATA PROCESSOR & DOM UPDATERS
 ───────────────────────────────────────────────── */
 
 /**
@@ -668,167 +601,6 @@ function updateSparkline() {
 }
 
 /* ─────────────────────────────────────────────────
-   5b. ROAD BACKGROUND RENDERER
-   Draws a realistic asphalt scene with potholes
-   onto the background canvas so demo mode shows
-   an actual road rather than a blank placeholder.
-───────────────────────────────────────────────── */
-function drawRoadScene() {
-  const canvas    = document.getElementById('roadBgCanvas');
-  const container = document.getElementById('mediaContainer');
-  if (!canvas || !container) return;
-
-  canvas.width  = container.offsetWidth;
-  canvas.height = container.offsetHeight;
-  const W = canvas.width;
-  const H = canvas.height;
-  const ctx = canvas.getContext('2d');
-
-  /* ── Asphalt base ── */
-  const roadGrad = ctx.createLinearGradient(0, 0, 0, H);
-  roadGrad.addColorStop(0,   '#191919');
-  roadGrad.addColorStop(0.45,'#222222');
-  roadGrad.addColorStop(1,   '#1a1a1a');
-  ctx.fillStyle = roadGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  /* ── Asphalt texture — fine noise ── */
-  for (let i = 0; i < 4000; i++) {
-    const tx = Math.random() * W;
-    const ty = Math.random() * H;
-    const b  = 18 + Math.floor(Math.random() * 22);
-    ctx.fillStyle = `rgba(${b},${b},${b},0.55)`;
-    ctx.fillRect(tx, ty, 1, 1);
-  }
-
-  /* ── Aggregate pebble hints ── */
-  for (let i = 0; i < 500; i++) {
-    const tx = Math.random() * W;
-    const ty = Math.random() * H;
-    const r  = 1 + Math.random() * 1.8;
-    const b  = 30 + Math.floor(Math.random() * 15);
-    ctx.beginPath();
-    ctx.arc(tx, ty, r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${b},${b},${b},0.35)`;
-    ctx.fill();
-  }
-
-  /* ── Yellow edge markings ── */
-  const eW = Math.max(2.5, W * 0.006);
-  const eX = W * 0.042;
-  ctx.strokeStyle = '#d4aa20';
-  ctx.lineWidth   = eW;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(eX, 0);       ctx.lineTo(eX, H);
-  ctx.moveTo(W - eX, 0);   ctx.lineTo(W - eX, H);
-  ctx.stroke();
-
-  /* ── White dashed centre line ── */
-  const dashH = H * 0.09;
-  const gapH  = H * 0.07;
-  ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-  ctx.lineWidth   = Math.max(2, W * 0.004);
-  ctx.setLineDash([dashH, gapH]);
-  ctx.lineDashOffset = 0;
-  ctx.beginPath();
-  ctx.moveTo(W / 2, -dashH);
-  ctx.lineTo(W / 2, H + dashH);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  /* ── Faint secondary lane marks (¼ and ¾) ── */
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth   = Math.max(1, W * 0.002);
-  ctx.setLineDash([dashH * 0.55, gapH * 1.8]);
-  [W * 0.25, W * 0.75].forEach(lx => {
-    ctx.beginPath();
-    ctx.moveTo(lx, 0); ctx.lineTo(lx, H);
-    ctx.stroke();
-  });
-  ctx.setLineDash([]);
-
-  /* ── Potholes ── */
-  const scaleX = W / 640;
-  const scaleY = H / 360;
-
-  POTHOLE_POSITIONS.forEach(p => {
-    const cx = p.x * scaleX;
-    const cy = p.y * scaleY;
-    const rx = (p.width  / 2) * scaleX;
-    const ry = (p.height / 2) * scaleY;
-
-    // Drop-shadow for depth
-    ctx.save();
-    ctx.shadowColor   = 'rgba(0,0,0,0.9)';
-    ctx.shadowBlur    = 14;
-    ctx.shadowOffsetY = 5;
-
-    // Deep pit fill
-    const pitGrad = ctx.createRadialGradient(
-      cx - rx * 0.22, cy - ry * 0.22, 0,
-      cx, cy, Math.max(rx, ry) * 1.05
-    );
-    pitGrad.addColorStop(0,    '#060606');
-    pitGrad.addColorStop(0.55, '#0d0d0d');
-    pitGrad.addColorStop(0.82, '#161616');
-    pitGrad.addColorStop(1,    '#242424');
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = pitGrad;
-    ctx.fill();
-    ctx.restore();
-
-    // Broken rim
-    ctx.strokeStyle = '#3a3a3a';
-    ctx.lineWidth   = Math.max(1.5, W * 0.003);
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx + 1.5, ry + 1.5, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Top-rim light catch
-    ctx.strokeStyle = 'rgba(110,110,110,0.35)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - ry * 0.12, rx * 0.65, ry * 0.28, -0.3, Math.PI, Math.PI * 1.85);
-    ctx.stroke();
-
-    // Radiating crack lines
-    const crackCount = 4 + Math.floor(cx * 0.003 + cy * 0.005) % 3; // deterministic variety
-    for (let c = 0; c < crackCount; c++) {
-      const baseAngle = (c / crackCount) * Math.PI * 2 + 0.25;
-      const jitter    = (((cx * 7 + cy * 13 + c * 31) % 100) / 100 - 0.5) * 0.5;
-      const angle     = baseAngle + jitter;
-      const startR    = Math.max(rx, ry) * 0.88;
-      const endR      = Math.max(rx, ry) * (1.25 + ((cx + c * 17) % 40) / 100);
-
-      const x1 = cx + Math.cos(angle) * startR;
-      const y1 = cy + Math.sin(angle) * startR * (ry / rx);
-      const x2 = cx + Math.cos(angle + jitter * 0.4) * endR;
-      const y2 = cy + Math.sin(angle + jitter * 0.4) * endR * (ry / rx);
-
-      ctx.strokeStyle = 'rgba(55,55,55,0.75)';
-      ctx.lineWidth   = 1;
-      ctx.setLineDash([2, 1.5]);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Subtle waterlogging sheen inside pit
-    const shineGrad = ctx.createLinearGradient(cx - rx * 0.5, cy - ry * 0.5, cx + rx * 0.3, cy + ry * 0.3);
-    shineGrad.addColorStop(0, 'rgba(25,45,65,0.45)');
-    shineGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.beginPath();
-    ctx.ellipse(cx - rx * 0.18, cy - ry * 0.18, rx * 0.48, ry * 0.38, -0.25, 0, Math.PI * 2);
-    ctx.fillStyle = shineGrad;
-    ctx.fill();
-  });
-}
-
-/* ─────────────────────────────────────────────────
    5c. ANNOTATED FRAME RENDERER
    Draws Roboflow's pre-annotated output_image directly
    onto the HUD canvas, replacing manual bbox drawing.
@@ -1097,8 +869,6 @@ function initZAxisSensor() {
       State.isLiveSensorActive = true;
       State.hasZAxisData = true;
       
-      clearInterval(State.simulatorInterval); // Stop desktop demo
-      
       const gz = parseFloat((z / 9.81).toFixed(3));
       processZAxisReading(gz);
 
@@ -1115,17 +885,6 @@ function initZAxisSensor() {
   }
 
   requestPermission();
-
-  // Desktop demo fallback: Start simulator initially for the live preview, 
-  // it shuts down automatically if user uploads video without a CSV.
-  State.simulatorInterval = setInterval(() => {
-    if (!State.isLiveSensorActive && State.hasZAxisData && State.csvZData.length === 0) {
-      const t = Date.now() / 150;
-      const gz = parseFloat((Math.sin(t * 0.15) * 0.08 + (Math.random() < 0.08 ? (Math.random() * 1.2 - 0.3) : 0) + (Math.random() - 0.5) * 0.05).toFixed(3));
-      processZAxisReading(gz);
-      if(sensorText) sensorText.textContent = 'Simulated sensor data (desktop mode)';
-    }
-  }, 120);
 }
 
 /* ── Z-Axis bar chart ── */
@@ -2238,38 +1997,6 @@ processDetectionData(0, []);
     document.getElementById('valCost').textContent = State.validatedRepairCost.toLocaleString('en-IN');
   }
 
-  /* ── Demo / Live Toggle ── */
-  const demoToggle  = document.getElementById('demoToggle');
-  const toggleThumb = document.getElementById('toggleThumb');
-  const toggleTrack = demoToggle.querySelector('.toggle-track');
-  const statusPill  = document.getElementById('statusPill');
-  const statusLabel = document.getElementById('statusLabel');
-
-  // Start in demo mode by default
-  setDemoMode(false);
-
-  demoToggle.addEventListener('click', () => {
-    State.isDemoMode = !State.isDemoMode;
-    setDemoMode(State.isDemoMode);
-  });
-
-  function setDemoMode(isDemo) {
-    State.isDemoMode = isDemo;
-
-    toggleThumb.classList.toggle('active', isDemo);
-    toggleTrack.classList.toggle('active', isDemo);
-
-    if (isDemo) {
-      statusPill.setAttribute('data-mode', 'demo');
-      statusLabel.textContent = 'Demo Mode';
-      startDemoMode();
-    } else {
-      statusPill.removeAttribute('data-mode');
-      statusLabel.textContent = 'API Live';
-      stopDemoMode();
-    }
-  }
-
 }
 /** Session clock ticker */
 function startSessionClock() {
@@ -2552,7 +2279,7 @@ function init() {
   window.addEventListener('resize', () => {
     const vid = document.getElementById('roadVideo');
     const hasVideo = vid.src && vid.readyState >= 1;
-    if (hasVideo) drawRoadScene(); else drawPlaceholder();
+    if (!hasVideo) drawPlaceholder();
     renderDetectionBoxes(State.detections);
     drawRoughnessGraph(State.roughnessHistory);
   });
@@ -2562,13 +2289,6 @@ function init() {
 
   // Warm-up animation: feed initial zero state
   processDetectionData(0, []);
-
-  // Short boot delay then let demo run
-  setTimeout(() => {
-    if (State.isDemoMode) {
-      injectDummyData(); // First tick immediately
-    }
-  }, 600);
 
   console.log('%c[TreadGuard CV] Ready ✓', 'color:#00e5a0; font-weight:bold;');
 }
