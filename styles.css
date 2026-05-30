@@ -156,43 +156,12 @@ body::before {
   text-transform: uppercase;
   transition: var(--transition);
 }
-.status-pill[data-mode="demo"] {
-  border-color: rgba(245,158,11,0.3);
-  background: var(--amber-dim);
-  color: var(--amber);
-}
 .status-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--accent);
   animation: blink 1.4s ease-in-out infinite;
 }
-.status-pill[data-mode="demo"] .status-dot { background: var(--amber); }
 @keyframes blink { 0%,100% { opacity:1 } 50% { opacity:0.2 } }
-
-/* Demo toggle button */
-.toggle-btn {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  transition: color var(--transition);
-}
-.toggle-btn:hover { color: var(--text-primary); }
-.toggle-track {
-  width: 36px; height: 18px; border-radius: 9px;
-  background: var(--bg-card); border: 1px solid var(--border);
-  position: relative; transition: background var(--transition);
-}
-.toggle-track.active { background: var(--accent-dim); border-color: var(--border-accent); }
-.toggle-thumb {
-  width: 12px; height: 12px; border-radius: 50%;
-  background: var(--text-muted);
-  position: absolute; top: 2px; left: 2px;
-  transition: transform var(--transition), background var(--transition);
-}
-.toggle-thumb.active { transform: translateX(18px); background: var(--accent); }
 
 /* Session clock */
 .session-time {
@@ -822,7 +791,7 @@ body::before {
   .site-title { font-size: 1.35rem; }
   .analytics-panel { grid-template-columns: 1fr; }
   .counter-value { font-size: 3rem; }
-  .session-time, .toggle-btn { display: none; }
+  .session-time { display: none; }
   .dashboard-grid { padding: 0.75rem; }
 }
 
