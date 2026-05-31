@@ -94,6 +94,6 @@ dashboard component reference): see `TreadGuard_CV_Manual.pdf` in this repo.
 
 **Saddab Ansari**  
 Information Technology Engineering Undergraduate | MMCOE, Pune  
-**LinkedIn : [@Saddab-Ansari](www.linkedin.com/in/saddab-ansari)
+**LinkedIn :** [@Saddab-Ansari](www.linkedin.com/in/saddab-ansari)
 
 *Built for the IIT Madras Road Safety Hackathon 2026.*
