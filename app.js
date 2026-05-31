@@ -85,6 +85,8 @@ const State = {
   currentTWP: 0,
   currentFrameW: 640,
   currentFrameH: 360,
+  lastProcessingTime: 0,
+  currentFPS: 0,
 };
 
 function captureCurrentFrame() {
@@ -135,9 +137,12 @@ async function runAnalysis() {
   // Skip if video hasn't moved ≥0.8s — prevents duplicate frame analysis.
   const video = document.getElementById('roadVideo');
   if (video && video.readyState >= 2) {
+    const isLiveStream = !!video.srcObject; // Check if we are using Live Cam
     const timeSinceLast = video.currentTime - State.lastAnalyzedVideoTime;
-    if (timeSinceLast < 0.8) {
-      console.log(`[TreadGuard] ⏭ Skipping — video only moved ${timeSinceLast.toFixed(2)}s (need ≥0.8s)`);
+    
+    // Only enforce the 0.8s delay on uploaded videos, NOT live streams
+    if (!isLiveStream && timeSinceLast < 0.8) {
+      console.log(`[TreadGuard] ⏭ Skipping — video only moved ${timeSinceLast.toFixed(2)}s`);
       return;
     }
     State.lastAnalyzedVideoTime = video.currentTime;
@@ -492,8 +497,20 @@ function updateHUD(count) {
     count > 5  ? 'var(--amber)' :
                  'var(--accent)';
 
-  document.getElementById('hudFPS').textContent = `${22 + Math.floor(Math.random() * 8)} FPS`;
+  // --- REAL FPS CALCULATOR ---
+  const now = Date.now();
+  if (State.lastProcessingTime) {
+    const dt = now - State.lastProcessingTime;
+    if (dt > 0) {
+      const rawFps = Math.round(1000 / dt);
+      // 70/30 Moving Average to prevent aggressive text flickering
+      State.currentFPS = Math.round((State.currentFPS * 0.7) + (rawFps * 0.3)); 
+    }
+  }
+  State.lastProcessingTime = now;
 
+  document.getElementById('hudFPS').textContent = `${State.currentFPS || 0} FPS`;
+  // ---------------------------
   document.getElementById('hudTimestamp').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
 }
 
@@ -1644,7 +1661,14 @@ function initControls() {
   });
 
   analyzeBtn.addEventListener('click', (e) => {
+    // --- iOS SENSOR PERMISSION ---
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().catch(() => console.log('Sensor permission pending'));
+    }
+      // -----------------------------
+
     isScanning = !isScanning;
+
 
     if (isScanning) {
       e.target.innerHTML = 'Stop Scanning';
@@ -1827,6 +1851,7 @@ processDetectionData(0, []);
         const actions = document.createElement('div');
         actions.className = `vd-actions ${det._status !== 'pending' ? 'hidden' : ''}`;
         
+        // --- ADD THESE 6 LINES BACK IN ---
         const tickBtn = document.createElement('button');
         tickBtn.className = 'vd-btn vd-btn-tick';
         tickBtn.textContent = '✓';
@@ -1834,12 +1859,19 @@ processDetectionData(0, []);
         const crossBtn = document.createElement('button');
         crossBtn.className = 'vd-btn vd-btn-cross';
         crossBtn.textContent = '✕';
-
+        
         // Operator confirmed Pothole
         tickBtn.onclick = () => {
+          if (det._status === 'validated') return; // Ignore if already validated
+          
+          // If previously rejected, clear the red border
+          if (det._status === 'rejected') {
+            bbox.classList.remove('rejected'); 
+          }
+          
           det._status = 'validated';
           bbox.classList.add('validated');
-          actions.classList.add('hidden');
+          // Removed the 'hidden' action so buttons stay visible!
           
           State.validatedPotholesCount++;
           if (!det._metrics) det._metrics = calcPotholeMetrics(det);
@@ -1850,9 +1882,19 @@ processDetectionData(0, []);
 
         // Operator rejected false positive
         crossBtn.onclick = () => {
+          if (det._status === 'rejected') return; // Ignore if already rejected
+          
+          // UNDO THE MATH if user is changing mind from Validated -> Rejected
+          if (det._status === 'validated') {
+            bbox.classList.remove('validated');
+            State.validatedPotholesCount--;
+            State.validatedRepairCost -= (det._metrics?.cost || 0);
+            updateValidationCounters();
+          }
+
           det._status = 'rejected';
           bbox.classList.add('rejected');
-          actions.classList.add('hidden');
+          // Removed the 'hidden' action so buttons stay visible!
         };
 
         actions.appendChild(tickBtn);
