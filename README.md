@@ -90,10 +90,15 @@ are available here: **[Google Drive](https://drive.google.com/drive/folders/1-8e
 Full technical manual (calibration methodology, TWP formula derivation, PWD rate basis,
 dashboard component reference): see `TreadGuard_CV_Manual.pdf` in this repo.
 
-## 👨‍💻 Author And Solo Developer
+## 👤 Author & Developer
+**Saddab Sabir Ansari**
+IT Engineering | MMCOE
 
-**Saddab Ansari**  
-Information Technology Engineering Undergraduate | MMCOE, Pune  
-**LinkedIn :** [@Saddab-Ansari](www.linkedin.com/in/saddab-ansari)
+**Team Members (Project Collaborators):**
+- Ishan Desai   — Worked on PPT
+- Pranav Bharam — Worked on PPT
+
+*Note: All technical work including code, architecture, demo video, 
+and repository was solely developed by Saddab Ansari.*
 
 *Built for the IIT Madras Road Safety Hackathon 2026.*
