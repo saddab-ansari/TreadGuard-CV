@@ -94,5 +94,5 @@ dashboard component reference): see `TreadGuard_CV_Manual.pdf` in this repo.
 **Saddab Sabir Ansari**
 IT Engineering | MMCOE
 
-*Developed independently as part of a group hackathon submission — 
+*Developed independently as part of a group hackathon submission:
 code, architecture, demo video, documentations and repository by Saddab Ansari.*
