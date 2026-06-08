@@ -94,11 +94,5 @@ dashboard component reference): see `TreadGuard_CV_Manual.pdf` in this repo.
 **Saddab Sabir Ansari**
 IT Engineering | MMCOE
 
-**Team Members (Project Collaborators):**
-- Ishan Desai   — Worked on PPT
-- Pranav Bharam — Worked on PPT
-
-*Note: All technical work including code, architecture, demo video, 
-and repository was solely developed by Saddab Ansari.*
-
-*Built for the IIT Madras Road Safety Hackathon 2026.*
+*Developed independently as part of a group hackathon submission — 
+code, architecture, demo video, documentations and repository by Saddab Ansari.*
