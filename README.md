@@ -127,7 +127,7 @@ For calibration methodology, the full TWP formula derivation with academic citat
 
 ## 🏆 Origin
 
-TreadGuard CV began as a submission for the IIT Madras Road Safety Hackathon 2026 (Problem Statement: RoadWatch), built independently in 9 days. It's now maintained here as a standalone open project.
+TreadGuard CV began as a submission for the IIT Madras Road Safety Hackathon 2026 (Problem Statement: RoadWatch), built independently by me in 10 days. It's now maintained here as a standalone open project.
 
 ---
 
