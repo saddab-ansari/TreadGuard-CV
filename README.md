@@ -1,98 +1,139 @@
-# 🛣️ TreadGuard CV 
+# 🛣️ TreadGuard CV
 
-**Predictive Road Audits & Tire Abrasion Analytics Platform**  
-*Built for the IIT Madras Road Safety Hackathon 2026 (Problem Statement: RoadWatch)*
+**Predictive Road Audits & Tire Abrasion Analytics Platform**
 
 [![JavaScript](https://img.shields.io/badge/Vanilla-JS-F7DF1E?style=flat-square&logo=javascript&logoColor=black)]()
 [![Node.js](https://img.shields.io/badge/Node.js-Backend-339933?style=flat-square&logo=node.js&logoColor=white)]()
 [![Roboflow](https://img.shields.io/badge/Roboflow-AI_Vision-6706CE?style=flat-square&logo=roboflow&logoColor=white)]()
 
-TreadGuard CV is a real-time, browser-based infrastructure intelligence platform. It transforms a standard smartphone into an enterprise-grade road auditing tool by fusing custom computer vision with live hardware telemetry (Z-Axis G-force). 
+TreadGuard CV is a real-time, browser-based infrastructure intelligence platform. It transforms a standard smartphone into a road auditing tool by fusing computer vision with live hardware telemetry (Z-axis G-force).
 
-By identifying potholes, tracking physical bump severity, and predicting environmental microplastic emissions, TreadGuard CV bridges the gap between public works infrastructure and environmental conservation.
-
----
-
-## 🚀 Live Deployment (Recommended for Evaluation)
-The system is fully deployed, secured, and ready for instant testing here:  
-👉 **[Live Link using render.com](https://treadguard-cv.onrender.com)**
-*If you are entering this link for the first time then it might take a 1 minute to load. then it starts instantly next time.*
+By identifying potholes, tracking physical bump severity, and predicting environmental microplastic emissions, TreadGuard CV bridges the gap between public infrastructure auditing and environmental conservation — and keeps a human in the loop on every detection before it becomes a certified report.
 
 ---
 
-## ⚠️ Local Testing Instructions (Important)
-If you wish to run this codebase locally from this repository, please note:  
-As per enterprise security best practices, the Roboflow API key has been securely excluded from the source code. The live deployment uses secure environment variables via a Node.js proxy.
+## 🚀 Live Deployment (Try It Now)
+The system is fully deployed and ready for instant testing — no setup required:
 
-To run this on your local machine, you must manually inject the API key:
+👉 **[Live App — treadguard-cv.onrender.com](https://treadguard-cv.onrender.com)**
 
-1. Clone the repository and open your terminal in the root directory.
-2. Run `npm install` to install dependencies (`express`, `cors`, `dotenv`, `axios`).
-3. Create a file named exactly `.env` in the root directory (refer to `.env.example`).
-4. Add the following line to the `.env` file *(Key provided in submission portal/documentation for evaluation purposes only)*:
-   `ROBOFLOW_API_KEY=your_api_key_here`
-5. Run `node server.js` to start the secure proxy.
-6. Open `http://localhost:3000` in your web browser.
-
-*Note: For the best and fastest experience, please use the live Render deployment linked at the top of this document.*
+*First load may take ~1 minute (free-tier cold start). It's instant after that.*
 
 ---
 
 ## ✨ Core Features
 
-*   **Real-Time Computer Vision:** Processes video feeds (live camera or uploaded MP4) using a custom-trained Roboflow detection model to draw precision bounding boxes around road hazards.
+* **Real-Time Computer Vision** — Processes video feeds (live camera or uploaded MP4) through a Roboflow detection workflow, drawing precision bounding boxes around road defects.
 
-*   **Hardware Telemetry Fusion:** Integrates with the browser's `DeviceMotion` API to track live Z-Axis accelerometer data, accurately measuring the physical G-force impact of every bump.
+* **Hardware Telemetry Fusion** — Integrates with the browser's `DeviceMotion` API to capture live Z-axis accelerometer data, measuring the physical G-force impact of every bump. Also accepts CSV-recorded accelerometer data, synced to video playback.
 
-*   **Human-in-the-Loop Validation:** Features a manual auditing dashboard where operators can certify or reject AI detections, guaranteeing 100% accuracy and eliminating false positives.
+* **Human-in-the-Loop Validation** — A manual auditing dashboard where operators review every AI detection and certify or reject it before it counts toward a cost estimate. The AI flags candidates; the human makes the call.
 
-*   **Automated Financial Mapping:** Calculates the physical $m^2$ area of road defects and automatically applies standard Public Works Department (PWD) tiered rates (₹573–₹900/m²) to generate instant repair cost estimates.
+* **Automated Financial Mapping** — Calculates the real-world area (m²) of each road defect via pixel-to-metre calibration, then applies tiered Public Works Department (PWD) rates (₹573–₹900/m²) to generate instant, defensible repair cost estimates.
 
-*   **One-Click Certified Reporting:** Generates and exports comprehensive, timestamped PDF reports featuring severity timelines and high-cost detection GPS events.
+* **Predictive Microplastic Emission Modeling** — Estimates tire wear particle (TWP) emissions in real time based on vehicle mass, passenger load, and live road roughness.
+
+* **One-Click Certified Reporting** — Exports three distinct PDF reports: a raw AI audit, a human-certified manual audit, and a TWP environmental report — each timestamped and ready to share.
 
 ---
 
 ## 🔬 Predictive Microplastic Emission Engine
-Degraded roads drastically accelerate the shedding of Tire Wear Particles (TWP) into the environment. TreadGuard CV utilizes a proprietary physics algorithm to predict these emissions in real-time.
 
-The model calculates the estimated emission ($E_{twp}$) in mg/km using the following logic:
+Degraded roads accelerate the shedding of Tire Wear Particles (TWP) into the environment — a source of microplastic pollution that's measurable but rarely tracked. TreadGuard CV estimates these emissions in real time using a formula grounded in published TRWP research (see the technical manual for full derivation and citations).
+
+The model calculates estimated emission ($E_{twp}$) in mg/km as:
 
 $E_{twp} = [W_{veh} + (N \times 68)] \times \beta \times [1 + (G_{avg} \times 1.5)] \times [1 + (E_{bump} \times 0.02)]$
 
 **Parameters:**
-*   **$W_{veh}$**: Base Vehicle Weight (kg)
-*   **$N$**: Passenger Count (Assumed 68kg average)
-*   **$\beta$**: Base Friction Constant (0.067 mg/km/kg)
-*   **$G_{avg}$**: Rolling Z-Axis Roughness (Live hardware data)
-*   **$E_{bump}$**: Significant Hardware Impact Events (>0.5G)
+* **$W_{veh}$** — Base vehicle kerb weight (kg)
+* **$N$** — Passenger count (avg. 68 kg/person)
+* **$\beta$** — Base friction constant (0.067 mg/km/kg)
+* **$G_{avg}$** — Rolling Z-axis roughness (live hardware data)
+* **$E_{bump}$** — Significant hardware impact events (>0.5G)
 
-*(This model is grounded in current academic research regarding tire abrasion and microplastic pollution.)*
+Full derivation, coefficient sourcing, and academic references are in `TreadGuard_CV_Manual.pdf`.
 
 ---
 
-## Trial Material
+## 🧩 Setting Up Your Own Roboflow Workflow
 
-Sample videos, accelerometer CSVs, and generated reports from test drives in Pune (29 May 2026)
-are available here: **[Google Drive](https://drive.google.com/drive/folders/1-8eQ4iDYx9ZRCtG_KEnP3ZtqFNQ5dION?usp=sharing)**
+TreadGuard CV doesn't ship with its own trained model — it calls a **Roboflow Workflow** for pothole detection. If you want to run this project with your own API key (rather than just using the live demo above), you'll need to set up a Workflow on Roboflow first.
+
+1. **Create a free Roboflow account** at [roboflow.com](https://roboflow.com).
+2. **Find or build a pothole detection model.** The fastest route is Roboflow Universe — search ["pothole detection"](https://universe.roboflow.com/) and clone an existing public model into your own workspace. Alternatively, train your own using a labeled pothole dataset.
+3. **Build a Workflow around your model.** In the Roboflow dashboard, go to **Workflows → Create Workflow**, add your model as a detection block, and deploy it. A Workflow (rather than a raw model endpoint) is what TreadGuard CV expects — it's what handles the inference call structure used in this project.
+4. **Grab your credentials** — your **Workspace name**, **Workflow ID**, and **API key**, all visible on your Workflow's deployment page.
+5. **Plug them into `server.js`** (see setup steps below).
+
+> 📌 **The exact Workflow used in the original build:** *[Add your Roboflow Workflow link here]*
+
+This project will work with any Roboflow object-detection Workflow that returns bounding boxes for road defects — you aren't locked into the exact model used during development. Swapping in a better-trained or region-specific model is one of the easiest ways to improve detection accuracy (see *Known Limitations* in the manual).
+
+---
+
+## ⚙️ Running This Locally
+
+The live deployment above is the easiest way to try TreadGuard CV. If you'd like to run it yourself with your own Roboflow credentials:
+
+1. **Clone the repository** and open a terminal in the root directory.
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+   (installs `express`, `cors`, `dotenv`, `axios`)
+3. **Create a `.env` file** in the root directory (see `.env.example` for the format).
+4. **Add your Roboflow credentials** to `.env`:
+   ```
+   ROBOFLOW_API_KEY=your_api_key_here
+   ROBOFLOW_WORKSPACE=your_workspace_name
+   ROBOFLOW_WORKFLOW_ID=your_workflow_id
+   ```
+5. **Start the server:**
+   ```bash
+   node server.js
+   ```
+6. **Open `http://localhost:3000`** in your browser.
+
+The API key is kept server-side on purpose — `server.js` acts as a secure proxy so the key never reaches the browser or gets committed to the repo. Don't put your key directly in `app.js` or any client-side file.
+
+---
 
 ## 🛠️ Architecture & Tech Stack
 
-*   **Frontend:** Pure, lightweight Vanilla JavaScript, HTML5, and CSS3.
-*   **Backend / Proxy:** Secure Node.js & Express server.
-*   **AI Inference:** Roboflow Inference API.
-*   **Sensors:** HTML5 `navigator.geolocation` and `DeviceMotionEvent` APIs.
-*   *No heavy frameworks, ensuring zero-lag telemetry rendering and maximum compatibility on low-end mobile devices.*
+* **Frontend** — Vanilla JavaScript, HTML5, and CSS3. No frameworks, no build step.
+* **Backend / Proxy** — Node.js & Express, used solely to keep the Roboflow API key server-side.
+* **AI Inference** — Roboflow Workflow API.
+* **Sensors** — Web `Geolocation` API (GPS) and `DeviceMotionEvent` API (accelerometer).
+* **Reporting** — Client-side HTML-to-PDF generation via the browser's print dialog.
+
+No heavy frameworks — by design. This keeps the app lightweight, dependency-free, and usable even on low-end mobile devices in the field, which matters for a tool meant to be used during an actual road survey.
 
 ---
 
-## Docs
+## 📂 Trial Material
 
-Full technical manual (calibration methodology, TWP formula derivation, PWD rate basis,
-dashboard component reference): see `TreadGuard_CV_Manual.pdf` in this repo.
+Sample videos, accelerometer CSVs, and generated reports from real test drives in Pune (29 May 2026) are available here:
+
+**[Google Drive — Trial Material](https://drive.google.com/drive/folders/1-8eQ4iDYx9ZRCtG_KEnP3ZtqFNQ5dION?usp=sharing)**
+
+---
+
+## 📖 Full Technical Manual
+
+For calibration methodology, the full TWP formula derivation with academic citations, PWD rate basis, dashboard component reference, and known limitations — see `TreadGuard_CV_Manual.pdf` in this repo.
+
+---
+
+## 🏆 Origin
+
+TreadGuard CV began as a submission for the IIT Madras Road Safety Hackathon 2026 (Problem Statement: RoadWatch), built independently in 9 days. It's now maintained here as a standalone open project.
+
+---
 
 ## 👤 Author & Developer
+
 **Saddab Sabir Ansari**
 IT Engineering | MMCOE
 
-*Developed independently as part of a group hackathon submission:
-code, architecture, demo video, documentations and repository by Saddab Ansari.*
+*Code, architecture, demo video, and documentation by Saddab Ansari.*
