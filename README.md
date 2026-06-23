@@ -121,7 +121,7 @@ Sample videos, accelerometer CSVs, and generated reports from real test drives i
 
 ## 📖 Full Technical Manual
 
-For calibration methodology, the full TWP formula derivation with academic citations, PWD rate basis, dashboard component reference, and known limitations — see `TreadGuard_CV_Manual.pdf` in this repo.
+For calibration methodology, the full TWP formula derivation with academic citations, PWD rate basis, dashboard component reference, and known limitations — see `ARCHITECTURE.md` in this repo.
 
 ---
 
