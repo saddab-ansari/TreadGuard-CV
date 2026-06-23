@@ -13,13 +13,11 @@
 
 /* ─────────────────────────────────────────────────
    1. CONFIGURATION & CONSTANTS
-   ─────────────────────────────────────────────────
-   !! REPLACE THESE PLACEHOLDERS BEFORE GOING LIVE !!
-───────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────*/
 const CONFIG = {
   ROBOFLOW_ENDPOINT: '/api/analyze',  // Proxied via server.js → Roboflow (no CORS issue)
 
-  // API key lives in server.js — do NOT put it here.
+  // API key lives in server.js.
 
   ROAD_WIDTH_METRES: 4.5,  // IRC:86 standard lane; user can override via UI
 
