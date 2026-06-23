@@ -68,7 +68,7 @@ TreadGuard CV doesn't ship with its own trained model — it calls a **Roboflow 
 
 > 📌 **The exact Workflow used in the original build:** *[Roboflow Workflow link here](https://app.roboflow.com/saddabs-workspace/solutions/chat?workflowUrl=pothole-detection)*
 
-This project will work with any Roboflow object-detection Workflow that returns bounding boxes for road defects — you aren't locked into the exact model used during development. Swapping in a better-trained or region-specific model is one of the easiest ways to improve detection accuracy (see *Known Limitations* in the manual).
+This project will work with any Roboflow object-detection Workflow that returns bounding boxes for road defects — you aren't locked into the exact model used during development. Swapping in a better-trained or region-specific model is one of the easiest ways to improve detection accuracy.
 
 ---
 
