@@ -127,13 +127,17 @@ For calibration methodology, the full TWP formula derivation with academic citat
 
 ## 🏆 Origin
 
-TreadGuard CV began as a submission for the IIT Madras Road Safety Hackathon 2026 (Problem Statement: RoadWatch), built independently by me in 10 days. It's now maintained here as a standalone open project.
+TreadGuard CV originated as a hackathon submission for the IIT Madras Road Safety 2026 event (Track: RoadWatch) under the team name Impactious. It is now maintained here as an independent, open-source technical portfolio project.
 
 ---
 
-## 👤 Author & Developer
+## 👤 Author & Sole Technical Developer
 
-**Saddab Sabir Ansari**
+**Saddab Sabir Ansari**  
 IT Engineering | MMCOE
 
-*Code, architecture, demo video, and documentation by Saddab Ansari.*
+*Sole developer responsible for all software architecture, computer vision integration, predictive modeling and documentations contained in this repository.*
+
+📫 **Connect with me:**
+* **LinkedIn:** [in/saddab-ansari](https://www.linkedin.com/in/saddab-ansari/)
+* **Email:** [saddabansari254@gmail.com](mailto:saddabansari254@gmail.com)
