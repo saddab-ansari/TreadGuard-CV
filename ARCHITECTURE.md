@@ -42,7 +42,7 @@ The CV model returns bounding boxes within a fixed **640 × 360 px** virtual fra
 
 **Pixel-to-metre conversion** *(IRC:86 standard single lane = 3.5 m)*:
 
-$$\text{metres\_per\_pixel} = \frac{\text{road\_width\_metres}}{640}$$
+$$\text{metres per pixel} = \frac{\text{road width metres}}{640}$$
 
 **Physical pothole area:**
 
@@ -83,7 +83,7 @@ TreadGuard CV doesn't use a flat rate — it implements a **tiered, area-based r
 
 **Cost formula per pothole:**
 
-$$\text{Total Cost} = (\text{area}_{m^2} \times \text{rate}_{/m^2}) + ₹500 \text{ mobilisation}$$
+$$\text{Total Cost} = (\text{area}_{m^2} \times \text{rate per } m^2) + ₹500 \text{ mobilisation}$$
 
 The ₹500 flat fee covers labour call-out and equipment setup, consistent with PWD SOR line items.
 
