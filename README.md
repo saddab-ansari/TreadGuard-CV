@@ -52,7 +52,7 @@ $E_{twp} = [W_{veh} + (N \times 68)] \times \beta \times [1 + (G_{avg} \times 1.
 * **$G_{avg}$** — Rolling Z-axis roughness (live hardware data)
 * **$E_{bump}$** — Significant hardware impact events (>0.5G)
 
-Full derivation, coefficient sourcing, and academic references are in `TreadGuard_CV_Manual.pdf`.
+Full derivation, coefficient sourcing, and academic references are in `ARCHITECTURE.md`.
 
 ---
 
