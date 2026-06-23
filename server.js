@@ -20,9 +20,13 @@ const app  = express();
 const PORT = 3000;
 
 // ── Roboflow config ────────────────────────────────────────────────────────
-const ROBOFLOW_API_KEY  = process.env.ROBOFLOW_API_KEY; // key
-const ROBOFLOW_ENDPOINT =
-  'https://serverless.roboflow.com/infer/workflows/saddabs-workspace/detect-count-and-visualize';
+
+const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY;
+const WORKSPACE = process.env.ROBOFLOW_WORKSPACE;
+const WORKFLOW_ID = process.env.ROBOFLOW_WORKFLOW_ID;
+
+const ROBOFLOW_ENDPOINT = 
+  `https://serverless.roboflow.com/infer/workflows/${WORKSPACE}/${WORKFLOW_ID}`;
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '20mb' }));   // large base64 images need room
