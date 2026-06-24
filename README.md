@@ -64,7 +64,7 @@ TreadGuard CV doesn't ship with its own trained model — it calls a **Roboflow 
 2. **Find or build a pothole detection model.** The fastest route is Roboflow Universe — search ["pothole detection"](https://universe.roboflow.com/) and clone an existing public model into your own workspace. Alternatively, train your own using a labeled pothole dataset.
 3. **Build a Workflow around your model.** In the Roboflow dashboard, go to **Workflows → Create Workflow**, add your model as a detection block, and deploy it. A Workflow (rather than a raw model endpoint) is what TreadGuard CV expects — it's what handles the inference call structure used in this project.
 4. **Grab your credentials** — your **Workspace name**, **Workflow ID**, and **API key**, all visible on your Workflow's deployment page.
-5. **Plug them into `server.js`** (see setup steps below).
+5. **Plug them into '.env' file** (see the Environment Variables setup below).
 
 > 📌 **The exact Workflow used in the original build:** *[Roboflow Workflow link here](https://app.roboflow.com/saddabs-workspace/solutions/chat?workflowUrl=pothole-detection)*
 
