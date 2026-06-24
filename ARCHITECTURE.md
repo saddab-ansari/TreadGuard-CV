@@ -128,10 +128,8 @@ $$E_{twp} = [W_{veh} + (N_{pax} \times 68)] \times \beta \times [1 + (G_{avg} \t
 | $[1 + G_{avg} \times 1.5]$ | Roughness multiplier |
 | $[1 + E_{bump} \times 0.02]$ | Bump impact multiplier |
 
-The two dynamic multipliers scale baseline emissions against real-time road quality, translating infrastructure degradation directly into an actionable **environmental impact metric**.
-
-Full formula derivation, coefficient sourcing, and academic citations are in `TreadGuard_CV_Manual.pdf`.
+The two dynamic multipliers scale baseline emissions against real-time road quality, translating infrastructure degradation directly into an actionable **environmental impact metric**..
 
 ---
 
-*Part of the [TreadGuard CV](README.md) project — built for the IIT Madras Road Safety Hackathon 2026.*
+*Part of the [TreadGuard CV](README.md) project*
