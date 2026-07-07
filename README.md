@@ -131,12 +131,14 @@ TreadGuard CV originated as a hackathon submission for the IIT Madras Road Safet
 
 ---
 
-## 👤 Author & Sole Technical Developer
+## 👤 Author & System Designer
 
 **Saddab Sabir Ansari**  
 IT Engineering | MMCOE
 
-*Sole developer responsible for all software architecture, computer vision integration, predictive modeling and documentations contained in this repository.*
+*Built during IIT Madras Road Safety Hackathon 2026. 
+System architecture, domain research, and deployment by Saddab Ansari. 
+Frontend implementation via AI-assisted development.*
 
 📫 **Connect with me:**
 * **LinkedIn:** [in/saddab-ansari](https://www.linkedin.com/in/saddab-ansari/)
