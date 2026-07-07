@@ -20,6 +20,11 @@ The system is fully deployed and ready for instant testing — no setup required
 *First load may take ~1 minute (free-tier cold start). It's instant after that.*
 
 ---
+## 👨‍💻 Development Methodology & My Role
+
+This project was developed as a rapid proof-of-concept. Rather than writing the code manually, my role was strictly Technical Product Management and System Design. I designed the architecture, defined the logic constraints, and utilized AI generation to write and assemble the actual codebase. The focus was on product vision, rapid execution, and stitching together complex AI outputs into a functional platform.
+
+--- 
 
 ## ✨ Core Features
 
